@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, type ReactNode } from "react";
-import { avgRate, dailySales, dayBudget, requiredHours } from "../lib/matrix";
+import { buildReport } from "../lib/report";
+import { hasBreak } from "../lib/hours";
 import type { Snapshot, TableName } from "../lib/types";
 
 const D = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -488,31 +489,19 @@ export default function Page() {
     { k: "only_for", l: "Only these people (blank = anyone)" },
   ];
 
-  // Labor matrix
-  const rate = avgRate(data.settings, data.employees);
-  const dsales = dailySales(data.store_hours, data.settings);
-  const days = data.store_hours.map((h) => {
-    const b = dayBudget(dsales[h.day], data.settings, rate);
-    const sched = data.schedule
-      .filter((s) => s.day === h.day)
-      .reduce((a, s) => a + hrs(s.start, s.end), 0);
-    return {
-      day: h.day,
-      sales: dsales[h.day],
-      target: b.target,
-      allowed: b.hours,
-      sched,
-    };
-  });
-  const totSales = days.reduce((a, d) => a + d.sales, 0);
-  const totHrs = days.reduce((a, d) => a + d.sched, 0);
-  const projCost = totHrs * rate;
-
-  // Full-coverage preview
-  const { hours: req, heads } = requiredHours(data.shift_templates);
-  const reqTotal = DAYS.reduce((a, d) => a + (req[d] || 0), 0);
-  const reqCost = reqTotal * rate;
-  const allowedTotal = days.reduce((a, d) => a + d.allowed, 0);
+  // Labor matrix, with hours counted both with and without breaks
+  const report = buildReport(data);
+  const { rate, heads } = report;
+  const days = report.days;
+  const totSales = report.totals.sales;
+  const totHrs = report.totals.sched;
+  const projCost = report.totals.schedCost;
+  const req: Record<number, number> = Object.fromEntries(
+    report.days.map((d) => [d.day, d.req]),
+  );
+  const reqTotal = report.totals.req;
+  const reqCost = report.totals.reqCost;
+  const allowedTotal = report.totals.allowed;
   const pct = Number(data.settings.payroll_pct);
   const weekly = Number(data.settings.weekly_sales);
   const minTotal = data.employees.reduce((a, e) => a + Number(e.min_hours), 0);
@@ -617,50 +606,77 @@ export default function Page() {
       .then(setData)
       .catch((e: Error) => alert(e.message));
 
+  const T = report.totals;
+  const altName = report.rule.countPaid ? "shift length" : "paid, minus lunch";
   const matrix: {
     label: string;
     cells: { t: string; bad?: boolean }[];
     total: string;
-  }[] = [
-    {
-      label: "Projected sales",
-      cells: days.map((d) => ({ t: money(d.sales) })),
-      total: money(totSales),
-    },
-    {
-      label: "Target payroll",
-      cells: days.map((d) => ({ t: money(d.target) })),
-      total: money(days.reduce((a, d) => a + d.target, 0)),
-    },
-    {
-      label: "Allowed hours",
-      cells: days.map((d) => ({ t: String(r2(d.allowed)) })),
-      total: String(r2(allowedTotal)),
-    },
-    {
-      label: "Hours to fully staff",
-      cells: days.map((d) => ({ t: String(r2(req[d.day] || 0)) })),
-      total: String(r2(reqTotal)),
-    },
-    {
-      label: "Cost to fully staff",
-      cells: days.map((d) => ({ t: money((req[d.day] || 0) * rate) })),
-      total: money(reqCost),
-    },
-    {
-      label: "Scheduled hours",
-      cells: days.map((d) => ({ t: String(r2(d.sched)) })),
-      total: String(r2(totHrs)),
-    },
-    {
-      label: "+/- hours",
-      cells: days.map((d) => ({
-        t: String(r2(d.sched - d.allowed)),
-        bad: d.sched > d.allowed,
-      })),
-      total: String(r2(totHrs - allowedTotal)),
-    },
-  ];
+    alt?: boolean;
+  }[] = (
+    [
+      {
+        label: "Projected sales",
+        cells: days.map((d) => ({ t: money(d.sales) })),
+        total: money(T.sales),
+      },
+      {
+        label: "Target payroll",
+        cells: days.map((d) => ({ t: money(d.target) })),
+        total: money(T.target),
+      },
+      {
+        label: "Allowed hours",
+        cells: days.map((d) => ({ t: String(r2(d.allowed)) })),
+        total: String(r2(T.allowed)),
+      },
+      {
+        label: "Hours to fully staff",
+        cells: days.map((d) => ({ t: String(r2(d.req)) })),
+        total: String(r2(T.req)),
+      },
+      {
+        label: altName,
+        alt: true,
+        cells: days.map((d) => ({ t: String(r2(d.reqAlt)) })),
+        total: String(r2(T.reqAlt)),
+      },
+      {
+        label: "Cost to fully staff",
+        cells: days.map((d) => ({ t: money(d.req * rate) })),
+        total: money(T.reqCost),
+      },
+      {
+        label: "Hours scheduled",
+        cells: days.map((d) => ({ t: String(r2(d.sched)) })),
+        total: String(r2(T.sched)),
+      },
+      {
+        label: altName,
+        alt: true,
+        cells: days.map((d) => ({ t: String(r2(d.schedAlt)) })),
+        total: String(r2(T.schedAlt)),
+      },
+      {
+        label: "Scheduled payroll",
+        cells: days.map((d) => ({ t: money(d.schedCost) })),
+        total: money(T.schedCost),
+      },
+      {
+        label: "+/- hours",
+        cells: days.map((d) => ({
+          t: String(r2(d.sched - d.allowed)),
+          bad: d.sched > d.allowed,
+        })),
+        total: String(r2(T.sched - T.allowed)),
+      },
+    ] as {
+      label: string;
+      cells: { t: string; bad?: boolean }[];
+      total: string;
+      alt?: boolean;
+    }[]
+  ).filter((r) => !r.alt || report.showAlt);
 
   return (
     <div className='min-h-screen pb-24 md:pb-10'>
@@ -816,6 +832,40 @@ export default function Page() {
               ]}
             />
             <h2 className='mb-2 mt-8 text-sm font-semibold text-slate-700'>
+              Lunch breaks and printing
+            </h2>
+            <Grid
+              table='settings'
+              fixed
+              rows={asRows([data.settings])}
+              onData={setData}
+              cols={[
+                { k: "break_minutes", l: "Lunch break (minutes)", t: "number" },
+                {
+                  k: "break_after",
+                  l: "Applies to shifts longer than (hours)",
+                  t: "number",
+                },
+                {
+                  k: "breaks_unpaid",
+                  l: "Lunch is unpaid? (1 = yes, 0 = no)",
+                  t: "number",
+                },
+                {
+                  k: "count_paid_hours",
+                  l: "Run budget and min/max on paid hours? (0 = no, use shift hours)",
+                  t: "number",
+                },
+                { k: "schedule_title", l: "Schedule title printed on the PDF" },
+              ]}
+            />
+            <p className='mt-2 text-xs text-slate-500'>
+              By default the budget, payroll and each person's min and max hours
+              all run on scheduled shift hours, and the paid figure (lunch
+              deducted) is shown in grey for reference. Set the last option to 1
+              to run everything on paid hours instead.
+            </p>
+            <h2 className='mb-2 mt-8 text-sm font-semibold text-slate-700'>
               Store hours and day weights
             </h2>
             <Grid
@@ -909,20 +959,30 @@ export default function Page() {
                   />
                 </div>
               </label>
-              <button
-                className={`${btnPrimary} w-full sm:w-auto`}
-                onClick={generate}
-                disabled={busy}
-              >
-                {busy ? "Generating…" : "Generate schedule"}
-              </button>
+              <div className='flex flex-col gap-2 sm:flex-row'>
+                <a
+                  href='/api/pdf'
+                  target='_blank'
+                  rel='noopener noreferrer'
+                  className={`${btnSecondary} w-full sm:w-auto`}
+                >
+                  Download PDF
+                </a>
+                <button
+                  className={`${btnPrimary} w-full sm:w-auto`}
+                  onClick={generate}
+                  disabled={busy}
+                >
+                  {busy ? "Generating…" : "Generate schedule"}
+                </button>
+              </div>
             </div>
 
             <div className='mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4'>
               <Stat
                 label='Hours to fully staff'
                 value={`${r2(reqTotal)}`}
-                sub={`${r2(allowedTotal)} allowed by budget`}
+                sub={`${report.showAlt ? `${r2(report.totals.reqAlt)} ${report.rule.countPaid ? "shift" : "paid"}, ` : ""}${r2(allowedTotal)} allowed`}
                 bad={over}
               />
               <Stat
@@ -939,7 +999,7 @@ export default function Page() {
               <Stat
                 label='Scheduled so far'
                 value={money(projCost)}
-                sub={`${r2(totHrs)} hrs${totSales ? `, ${((projCost / totSales) * 100).toFixed(1)}% of sales` : ""}`}
+                sub={`${r2(totHrs)} hrs${report.showAlt ? `, ${r2(report.totals.schedAlt)} ${report.rule.countPaid ? "shift" : "paid"}` : ""}${totSales ? `, ${((projCost / totSales) * 100).toFixed(1)}% of sales` : ""}`}
               />
             </div>
 
@@ -1050,18 +1110,22 @@ export default function Page() {
                 <tbody className='divide-y divide-slate-100'>
                   {matrix.map((row) => (
                     <tr key={row.label}>
-                      <td className='sticky left-0 whitespace-nowrap bg-white px-3 py-2 font-medium text-slate-700'>
+                      <td
+                        className={`sticky left-0 whitespace-nowrap bg-white px-3 ${row.alt ? "py-1 pl-6 text-xs text-slate-400" : "py-2 font-medium text-slate-700"}`}
+                      >
                         {row.label}
                       </td>
                       {row.cells.map((c, i) => (
                         <td
                           key={i}
-                          className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${c.bad ? "font-semibold text-amber-600" : "text-slate-700"}`}
+                          className={`whitespace-nowrap px-3 text-right tabular-nums ${row.alt ? "py-1 text-xs text-slate-400" : `py-2 ${c.bad ? "font-semibold text-amber-600" : "text-slate-700"}`}`}
                         >
                           {c.t}
                         </td>
                       ))}
-                      <td className='whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-slate-900'>
+                      <td
+                        className={`whitespace-nowrap px-3 text-right tabular-nums ${row.alt ? "py-1 text-xs text-slate-400" : "py-2 font-semibold text-slate-900"}`}
+                      >
                         {row.total}
                       </td>
                     </tr>
@@ -1117,10 +1181,11 @@ export default function Page() {
                         const mine = data.schedule.filter(
                           (s) => s.employee_id === e.id,
                         );
-                        const h = mine.reduce(
-                          (a, s) => a + hrs(s.start, s.end),
-                          0,
+                        const er = report.employees.find(
+                          (x) => x.emp.id === e.id,
                         );
+                        const h = er ? er.hours : 0;
+                        const alt = er ? er.alt : 0;
                         const off = h < e.min_hours || h > e.max_hours;
                         return (
                           <tr key={e.id} className='align-top'>
@@ -1164,6 +1229,12 @@ export default function Page() {
                               <div className='text-xs font-normal text-slate-400'>
                                 {e.min_hours}–{e.max_hours}
                               </div>
+                              {report.showAlt && (
+                                <div className='text-xs font-normal text-slate-400'>
+                                  {r2(alt)}{" "}
+                                  {report.rule.countPaid ? "shift" : "paid"}
+                                </div>
+                              )}
                               <div
                                 className={`text-xs font-normal ${closeCount(e.id) > closeLimit(e) ? "text-amber-600" : "text-slate-400"}`}
                               >
@@ -1204,6 +1275,8 @@ export default function Page() {
                               className={`text-xs ${d.sched > d.allowed ? "font-semibold text-amber-600" : "text-slate-500"}`}
                             >
                               {r2(d.sched)} of {r2(d.allowed)} hrs
+                              {report.showAlt &&
+                                ` (${r2(d.schedAlt)} ${report.rule.countPaid ? "shift" : "paid"})`}
                             </span>
                           </div>
                         </div>
@@ -1224,6 +1297,8 @@ export default function Page() {
                                 </div>
                                 <div className='text-xs text-slate-500'>
                                   {t12(s.start)} – {t12(s.end)}
+                                  {hasBreak(s.start, s.end, report.rule) &&
+                                    ` · ${report.rule.minutes} min lunch`}
                                 </div>
                               </div>
                               <span

@@ -1,6 +1,7 @@
 import { snapshot, transaction } from "./db";
 import { avgRate, dailySales, dayBudget } from "./matrix";
 import { repair } from "./solver";
+import { breakRule, logicHours } from "./hours";
 import { allowedFor, availStatus, limitFor, norm } from "./rules";
 import type { Employee, Settings, ShiftTemplate, StoreHour } from "./types";
 
@@ -9,7 +10,6 @@ const m = (t: string): number => {
   const [h, mi] = t.split(":");
   return +h * 60 + +mi;
 };
-const lenOf = (t: ShiftTemplate) => (m(t.end) - m(t.start)) / 60;
 
 type Emp = Employee & {
   hrs: number;
@@ -36,6 +36,9 @@ export interface Plan {
 async function plan(write: boolean): Promise<Plan> {
   const snap = await snapshot();
   const s: Settings = snap.settings;
+  const rule = breakRule(s);
+  // All hour accounting (budget, min/max hours) uses scheduled shift hours, or paid hours if that setting is on
+  const lenOf = (t: ShiftTemplate) => logicHours(t.start, t.end, rule);
   const hoursByDay = Object.fromEntries(
     snap.store_hours.map((h) => [h.day, h]),
   );

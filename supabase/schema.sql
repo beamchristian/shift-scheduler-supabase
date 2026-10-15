@@ -9,7 +9,12 @@ create table if not exists settings (
   weekly_sales double precision default 38000,
   fill_extra double precision default 1,
   rate_override double precision,
-  max_closes double precision default 3
+  max_closes double precision default 3,
+  break_minutes double precision default 30,
+  break_after double precision default 5,
+  breaks_unpaid double precision default 1,
+  count_paid_hours double precision default 0,
+  schedule_title text default 'Weekly Schedule'
 );
 
 create table if not exists store_hours (

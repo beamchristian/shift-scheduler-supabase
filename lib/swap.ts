@@ -1,4 +1,5 @@
 import { snapshot, transaction } from "./db";
+import { breakRule, logicHours } from "./hours";
 import { allowedFor, availStatus, lacksSkill, limitFor } from "./rules";
 import type {
   Employee,
@@ -21,8 +22,6 @@ const m = (t: string): number => {
   const [h, mi] = t.split(":");
   return +h * 60 + +mi;
 };
-const lenOf = (r: { start: string; end: string }) =>
-  (m(r.end) - m(r.start)) / 60;
 const t12 = (t: string) => {
   const [h, mi] = t.split(":").map(Number);
   return `${h % 12 || 12}:${String(mi).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
@@ -45,6 +44,9 @@ export async function swapClosers(
 ): Promise<{ ok: boolean; message: string }> {
   const snap = await snapshot();
   const s: Settings = snap.settings;
+  const rule = breakRule(s);
+  const lenOf = (r: { start: string; end: string }) =>
+    logicHours(r.start, r.end, rule);
   const closeAt: Record<number, string> = Object.fromEntries(
     snap.store_hours.map((h) => [h.day, h.close]),
   );

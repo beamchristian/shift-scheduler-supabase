@@ -51,6 +51,11 @@ export const COLS: Record<TableName, string[]> = {
     "rate_override",
     "fill_extra",
     "max_closes",
+    "break_minutes",
+    "break_after",
+    "breaks_unpaid",
+    "count_paid_hours",
+    "schedule_title",
     "earliest_start",
     "latest_start",
   ],
@@ -95,6 +100,10 @@ const NUM = new Set([
   "min_hours",
   "max_hours",
   "wage",
+  "break_minutes",
+  "break_after",
+  "breaks_unpaid",
+  "count_paid_hours",
 ]);
 export function coerce(col: string, v: unknown): string | number | null {
   if (v === undefined || v === null) return null;
