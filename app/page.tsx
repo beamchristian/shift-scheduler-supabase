@@ -607,6 +607,17 @@ export default function Page() {
       .catch((e: Error) => alert(e.message));
 
   const T = report.totals;
+  const altTag = report.rule.countPaid ? "shift" : "paid";
+  const costSub = `${report.showAlt ? `${money(T.reqCostAlt)} ${altTag}, ` : ""}at $${rate.toFixed(2)}/hr average`;
+  const schedSub = [
+    `${r2(totHrs)} hrs`,
+    totSales ? `${((projCost / totSales) * 100).toFixed(1)}% of sales` : "",
+    report.showAlt
+      ? `${money(T.schedCostAlt)} ${altTag}${totSales ? ` (${((T.schedCostAlt / totSales) * 100).toFixed(1)}%)` : ""}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
   const altName = report.rule.countPaid ? "shift length" : "paid, minus lunch";
   const matrix: {
     label: string;
@@ -647,6 +658,12 @@ export default function Page() {
         total: money(T.reqCost),
       },
       {
+        label: altName,
+        alt: true,
+        cells: days.map((d) => ({ t: money(d.reqAlt * rate) })),
+        total: money(T.reqCostAlt),
+      },
+      {
         label: "Hours scheduled",
         cells: days.map((d) => ({ t: String(r2(d.sched)) })),
         total: String(r2(T.sched)),
@@ -661,6 +678,12 @@ export default function Page() {
         label: "Scheduled payroll",
         cells: days.map((d) => ({ t: money(d.schedCost) })),
         total: money(T.schedCost),
+      },
+      {
+        label: altName,
+        alt: true,
+        cells: days.map((d) => ({ t: money(d.schedCostAlt) })),
+        total: money(T.schedCostAlt),
       },
       {
         label: "+/- hours",
@@ -988,7 +1011,7 @@ export default function Page() {
               <Stat
                 label='Cost to fully staff'
                 value={money(reqCost)}
-                sub={`at ${"$" + rate.toFixed(2)}/hr average`}
+                sub={costSub}
               />
               <Stat
                 label='Share of forecast'
@@ -999,7 +1022,7 @@ export default function Page() {
               <Stat
                 label='Scheduled so far'
                 value={money(projCost)}
-                sub={`${r2(totHrs)} hrs${report.showAlt ? `, ${r2(report.totals.schedAlt)} ${report.rule.countPaid ? "shift" : "paid"}` : ""}${totSales ? `, ${((projCost / totSales) * 100).toFixed(1)}% of sales` : ""}`}
+                sub={schedSub}
               />
             </div>
 
