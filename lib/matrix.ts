@@ -1,53 +1,69 @@
 import { clockHours, paidHours, type BreakRule } from "./hours";
-import type { Employee, Settings, ShiftTemplate, StoreHour } from "./types";
+import type { ShiftTemplate, Settings, StoreHour } from "./types";
 
 // Labor matrix: daily hours allowed = daily sales x payroll % / average hourly rate.
-// Daily sales = the week's forecast split by each day's share of weekly sales.
-// The average hourly rate is a single setting. Pay is never stored per person.
-export function avgRate(s: Settings): number {
-  const o = Number(s.rate_override);
-  return o > 0 ? o : 0;
+// Daily sales = the week's forecast, split across the days by each day's share of weekly sales.
+// The average hourly rate is one setting for the whole department. Pay is never stored per person.
+
+// Returns the average hourly rate from the settings, or 0 when none is set.
+export function avgRate(settings: Settings): number {
+  const overrideRate = Number(settings.rate_override);
+  return overrideRate > 0 ? overrideRate : 0;
 }
 
+// Splits the weekly sales forecast across the days, in proportion to each day's sales share.
+// Returns the sales amount for each day, keyed by day number (1 = Monday).
 export function dailySales(
-  hs: StoreHour[],
-  s: Settings,
+  storeHourRows: StoreHour[],
+  settings: Settings,
 ): Record<number, number> {
-  const total = hs.reduce((a, h) => a + Number(h.sales_pct), 0);
+  const totalSalesShare = storeHourRows.reduce(
+    (runningTotal, storeHour) => runningTotal + Number(storeHour.sales_pct),
+    0,
+  );
   return Object.fromEntries(
-    hs.map((h) => [
-      h.day,
-      total > 0 ? (Number(s.weekly_sales) * Number(h.sales_pct)) / total : 0,
+    storeHourRows.map((storeHour) => [
+      storeHour.day,
+      totalSalesShare > 0
+        ? (Number(settings.weekly_sales) * Number(storeHour.sales_pct)) / totalSalesShare
+        : 0,
     ]),
   );
 }
 
+// The labor budget for one day: the payroll dollars allowed, and the hours those dollars buy at the average rate.
 export function dayBudget(
-  sales: number,
-  s: Settings,
-  rate: number,
+  dailySalesAmount: number,
+  settings: Settings,
+  hourlyRate: number,
 ): { target: number; hours: number } {
-  const target = (sales * Number(s.payroll_pct)) / 100;
-  return { target, hours: rate > 0 ? target / rate : 0 };
+  const payrollTargetDollars = (dailySalesAmount * Number(settings.payroll_pct)) / 100;
+  return {
+    target: payrollTargetDollars,
+    hours: hourlyRate > 0 ? payrollTargetDollars / hourlyRate : 0,
+  };
 }
 
-// Hours needed per day to fill every shift template (headcount x shift length), as scheduled shift hours and as paid hours.
+// Hours needed on each day to fill every shift template (people needed x shift length).
+// Returns the totals two ways: as scheduled shift hours, and as paid hours. Also the number of people needed.
 export function requiredHours(
-  tpls: ShiftTemplate[],
-  rule: BreakRule,
+  shiftTemplates: ShiftTemplate[],
+  breakSettings: BreakRule,
 ): {
   shift: Record<number, number>;
   paid: Record<number, number>;
   heads: Record<number, number>;
 } {
-  const shift: Record<number, number> = {};
-  const paid: Record<number, number> = {};
-  const heads: Record<number, number> = {};
-  for (const t of tpls) {
-    const n = Number(t.needed);
-    shift[t.day] = (shift[t.day] || 0) + n * clockHours(t.start, t.end);
-    paid[t.day] = (paid[t.day] || 0) + n * paidHours(t.start, t.end, rule);
-    heads[t.day] = (heads[t.day] || 0) + n;
+  const shiftHoursByDay: Record<number, number> = {};
+  const paidHoursByDay: Record<number, number> = {};
+  const peopleByDay: Record<number, number> = {};
+  for (const template of shiftTemplates) {
+    const peopleNeeded = Number(template.needed);
+    shiftHoursByDay[template.day] =
+      (shiftHoursByDay[template.day] || 0) + peopleNeeded * clockHours(template.start, template.end);
+    paidHoursByDay[template.day] =
+      (paidHoursByDay[template.day] || 0) + peopleNeeded * paidHours(template.start, template.end, breakSettings);
+    peopleByDay[template.day] = (peopleByDay[template.day] || 0) + peopleNeeded;
   }
-  return { shift, paid, heads };
+  return { shift: shiftHoursByDay, paid: paidHoursByDay, heads: peopleByDay };
 }
