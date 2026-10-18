@@ -6,6 +6,14 @@ import { TagsInput } from "../ui/TagsInput";
 
 // One editable cell. Shows a dropdown, a text box or a plain label, depending on the column.
 // Saves the whole row when the value changes.
+// The choices for a dropdown. If the saved value is not one of them (for example, a skill that was
+// removed from the team), it is added at the top so the value is still shown and is not lost.
+const choicesForCell = (choices: (string | number)[], currentValue: string | number | null) => {
+  const currentText = String(currentValue ?? "");
+  const isKnownChoice = choices.some((choice) => String(choice) === currentText);
+  return isKnownChoice ? choices : [currentText, ...choices];
+};
+
 export function EditableCell({
   column,
   row,
@@ -41,12 +49,12 @@ export function EditableCell({
     return (
       <select
         className={fieldClass}
-        defaultValue={String(row[column.key])}
+        defaultValue={String(row[column.key] ?? "")}
         onChange={(changeEvent) =>
           onSaveRow({ ...row, [column.key]: changeEvent.target.value })
         }
       >
-        {column.options.map((optionValue) => (
+        {choicesForCell(column.options, row[column.key]).map((optionValue) => (
           <option key={optionValue} value={optionValue}>
             {column.formatOption ? column.formatOption(optionValue) : optionValue}
           </option>

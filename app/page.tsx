@@ -284,6 +284,7 @@ export default function Page() {
         {currentTab === "Shifts" && (
           <ShiftsScreen
             shiftTemplates={data.shift_templates}
+            employees={data.employees}
             onDataChange={setData}
             highlightedId={highlightedIdFor("shift_templates")}
             onRowAdded={(newRowId) => markRowAsNew("shift_templates", newRowId)}
