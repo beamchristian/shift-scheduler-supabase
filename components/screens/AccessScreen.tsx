@@ -2,6 +2,7 @@
 import { cardClass, fieldClass, primaryButtonClass } from "../../lib/ui/styles";
 import type { AccessMember } from "../types";
 import { Callout } from "../ui/Callout";
+import { CreateDepartmentCard } from "./CreateDepartmentCard";
 import { Heading } from "../ui/Heading";
 
 // The Access screen: who can sign in to this department, and their roles.
@@ -143,6 +144,14 @@ export function AccessScreen({
         then Add user), since sign-up is turned off. Then add them here with the
         same email.
       </p>
+      {canManage && (
+        <>
+          <h2 className='mb-2 mt-8 text-sm font-semibold text-slate-700'>
+            Create a department
+          </h2>
+          <CreateDepartmentCard />
+        </>
+      )}
     </>
   );
 }
