@@ -500,8 +500,7 @@ export default function Page() {
           <b>Could not load data.</b>
           <div className='mt-1 break-words'>{loadError}</div>
           <div className='mt-2 text-amber-800'>
-            Check that DATABASE_URL is set and that supabase/schema.sql has been
-            run.
+            If you should have access, ask an owner to add you on the Access tab.
           </div>
         </div>
       </main>

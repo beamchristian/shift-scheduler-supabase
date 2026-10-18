@@ -1,17 +1,22 @@
 import { NextResponse } from 'next/server';
 import { COLS, coerce, errMsg, q, snapshot } from '../../../lib/db';
+import { whoAmI } from '../../../lib/access';
 import type { TableName } from '../../../lib/types';
 
 export const dynamic = 'force-dynamic';
 
 type Body = { action: 'save' | 'delete'; table: TableName; row: Record<string, string | number | null> & { id?: number } };
 
-export async function GET() {
+export async function GET(req: Request) {
+  const me = await whoAmI(req);
+  if (me instanceof Response) return me;
   try { return NextResponse.json(await snapshot()); } catch (e) { return NextResponse.json({ error: errMsg(e) }, { status: 500 }); }
 }
 
 // Whitelisted generic save/delete so each table editor shares one endpoint.
 export async function POST(req: Request) {
+  const me = await whoAmI(req);
+  if (me instanceof Response) return me;
   const { action, table, row } = (await req.json()) as Body;
   if (!Object.prototype.hasOwnProperty.call(COLS, table)) return NextResponse.json({ error: 'bad table' }, { status: 400 });
   const cols = COLS[table];

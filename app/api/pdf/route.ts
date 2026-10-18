@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { errMsg, snapshot } from "../../../lib/db";
 import { buildPdf } from "../../../lib/pdf";
+import { whoAmI } from "../../../lib/access";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
+  const me = await whoAmI(req);
+  if (me instanceof Response) return me;
   try {
     const snap = await snapshot();
     const bytes = await buildPdf(snap);
