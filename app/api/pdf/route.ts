@@ -1,28 +1,30 @@
 import { NextResponse } from "next/server";
+import { resolveCaller } from "../../../lib/access";
 import { errMsg, snapshot } from "../../../lib/db";
 import { buildPdf } from "../../../lib/pdf";
-import { whoAmI } from "../../../lib/access";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
-  const me = await whoAmI(req);
-  if (me instanceof Response) return me;
+// Builds the printable schedule (with the labor matrix and payroll) for the active department.
+export async function GET(request: Request) {
+  const caller = await resolveCaller(request);
+  if (caller instanceof Response) return caller;
   try {
-    const snap = await snapshot();
-    const bytes = await buildPdf(snap);
-    const slug =
-      (snap.settings.schedule_title || "schedule")
+    const departmentSnapshot = await snapshot(caller.departmentId);
+    const pdfBytes = await buildPdf(departmentSnapshot);
+    // File name comes from the schedule title, for example "weekly-schedule.pdf".
+    const fileNameSlug =
+      (departmentSnapshot.settings.schedule_title || "schedule")
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "") || "schedule";
-    return new Response(Buffer.from(bytes), {
+    return new Response(Buffer.from(pdfBytes), {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${slug}.pdf"`,
+        "Content-Disposition": `inline; filename="${fileNameSlug}.pdf"`,
       },
     });
-  } catch (e) {
-    return NextResponse.json({ error: errMsg(e) }, { status: 500 });
+  } catch (thrownError) {
+    return NextResponse.json({ error: errMsg(thrownError) }, { status: 500 });
   }
 }

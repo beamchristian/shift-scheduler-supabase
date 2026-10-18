@@ -53,6 +53,14 @@ const TABS: Tab[] = [
   "Access",
 ];
 type Member = { id: number; email: string; role: string };
+// Who is signed in, the department they are working in, and every department they can switch to.
+type Me = {
+  email: string;
+  departmentId: number;
+  departmentName: string;
+  role: string;
+  memberships: { departmentId: number; departmentName: string; role: string }[];
+};
 
 const api = async <T,>(url: string, body?: unknown): Promise<T> => {
   const r = await fetch(
@@ -493,6 +501,19 @@ export default function Page() {
       window.location.href = "/login";
     });
 
+  // Who is signed in and which departments they can switch between.
+  const [me, setMe] = useState<Me | null>(null);
+  useEffect(() => {
+    api<Me>("/api/me")
+      .then(setMe)
+      .catch(() => setMe(null));
+  }, []);
+  // Saves the chosen department, then reloads so every part of the page shows that department's data.
+  const switchDepartment = (nextDepartmentId: number) =>
+    api("/api/department", { departmentId: nextDepartmentId })
+      .then(() => window.location.reload())
+      .catch((thrownError: Error) => setLoadError(thrownError.message));
+
   if (!data)
     return loadError ? (
       <main className='mx-auto max-w-xl p-8'>
@@ -500,7 +521,8 @@ export default function Page() {
           <b>Could not load data.</b>
           <div className='mt-1 break-words'>{loadError}</div>
           <div className='mt-2 text-amber-800'>
-            If you should have access, ask an owner to add you on the Access tab.
+            If you should have access, ask an owner to add you on the Access
+            tab.
           </div>
         </div>
       </main>
@@ -772,6 +794,30 @@ export default function Page() {
               </button>
             ))}
           </nav>
+          {me &&
+            (me.memberships.length > 1 ? (
+              <select
+                aria-label='Department'
+                className={`${field} w-auto py-1.5 text-sm`}
+                value={me.departmentId}
+                onChange={(changeEvent) =>
+                  switchDepartment(Number(changeEvent.target.value))
+                }
+              >
+                {me.memberships.map((membership) => (
+                  <option
+                    key={membership.departmentId}
+                    value={membership.departmentId}
+                  >
+                    {membership.departmentName}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className='text-sm font-semibold text-slate-700'>
+                {me.departmentName}
+              </span>
+            ))}
           <button
             onClick={signOut}
             className='rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100'
@@ -869,7 +915,9 @@ export default function Page() {
 
         {tab === "Access" && (
           <>
-            <Heading title='Team access'>
+            <Heading
+              title={me ? `Team access: ${me.departmentName}` : "Team access"}
+            >
               Who can sign in to this department. Owners can add people and
               change access. Managers can edit schedules, the forecast and
               settings, but can't change access.

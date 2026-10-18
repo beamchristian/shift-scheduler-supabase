@@ -1,40 +1,87 @@
-import { NextResponse } from 'next/server';
-import { COLS, coerce, errMsg, q, snapshot } from '../../../lib/db';
-import { whoAmI } from '../../../lib/access';
-import type { TableName } from '../../../lib/types';
+import { NextResponse } from "next/server";
+import { resolveCaller } from "../../../lib/access";
+import { COLS, coerce, errMsg, runQuery, snapshot } from "../../../lib/db";
+import type { TableName } from "../../../lib/types";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
-type Body = { action: 'save' | 'delete'; table: TableName; row: Record<string, string | number | null> & { id?: number } };
-
-export async function GET(req: Request) {
-  const me = await whoAmI(req);
-  if (me instanceof Response) return me;
-  try { return NextResponse.json(await snapshot()); } catch (e) { return NextResponse.json({ error: errMsg(e) }, { status: 500 }); }
+// What the page sends when it saves or deletes one row.
+interface SaveOrDeleteRequest {
+  action: "save" | "delete";
+  table: TableName;
+  row: Record<string, string | number | null> & { id?: number };
 }
 
-// Whitelisted generic save/delete so each table editor shares one endpoint.
-export async function POST(req: Request) {
-  const me = await whoAmI(req);
-  if (me instanceof Response) return me;
-  const { action, table, row } = (await req.json()) as Body;
-  if (!Object.prototype.hasOwnProperty.call(COLS, table)) return NextResponse.json({ error: 'bad table' }, { status: 400 });
-  const cols = COLS[table];
-  let newId: number | undefined;
+// Returns all of the active department's data.
+export async function GET(request: Request) {
+  const caller = await resolveCaller(request);
+  if (caller instanceof Response) return caller;
   try {
-    if (action === 'delete') {
-      await q(`delete from ${table} where id=$1`, [Number(row.id)]);
-    } else {
-      const vals = cols.map((c) => coerce(c, row[c]));
-      if (row.id) {
-        await q(`update ${table} set ${cols.map((c, i) => `"${c}"=$${i + 1}`).join(',')} where id=$${cols.length + 1}`, [...vals, Number(row.id)]);
+    return NextResponse.json(await snapshot(caller.departmentId));
+  } catch (thrownError) {
+    return NextResponse.json({ error: errMsg(thrownError) }, { status: 500 });
+  }
+}
+
+// Saves (adds or updates) or deletes one row in the active department.
+// Every change is limited to rows that belong to that department.
+export async function POST(request: Request) {
+  const caller = await resolveCaller(request);
+  if (caller instanceof Response) return caller;
+
+  const { action, table, row } = (await request.json()) as SaveOrDeleteRequest;
+  // Only the tables and columns listed in COLS can be changed from the page.
+  if (!Object.prototype.hasOwnProperty.call(COLS, table))
+    return NextResponse.json({ error: "bad table" }, { status: 400 });
+
+  const editableColumns = COLS[table];
+  const departmentId = caller.departmentId;
+  const isSettingsTable = table === "settings";
+  let newRowId: number | undefined;
+
+  try {
+    if (action === "delete") {
+      // Each department has exactly one settings row, so it cannot be deleted.
+      if (isSettingsTable)
+        return NextResponse.json({ error: "Settings cannot be deleted." }, { status: 400 });
+      await runQuery(`delete from ${table} where id = $1 and department_id = $2`, [
+        Number(row.id),
+        departmentId,
+      ]);
+    } else if (isSettingsTable || row.id) {
+      // Updating. Settings is always the department's own row, found by department_id, not by id.
+      const newValues = editableColumns.map((columnName) => coerce(columnName, row[columnName]));
+      const setClause = editableColumns
+        .map((columnName, valueIndex) => `"${columnName}"=$${valueIndex + 1}`)
+        .join(",");
+      if (isSettingsTable) {
+        await runQuery(
+          `update settings set ${setClause} where department_id = $${editableColumns.length + 1}`,
+          [...newValues, departmentId],
+        );
       } else {
-        const r = await q<{ id: number }>(`insert into ${table} (${cols.map((c) => `"${c}"`).join(',')}) values (${cols.map((_, i) => `$${i + 1}`).join(',')}) returning id`, vals);
-        newId = r[0].id;
+        await runQuery(
+          `update ${table} set ${setClause} where id = $${editableColumns.length + 1} and department_id = $${editableColumns.length + 2}`,
+          [...newValues, Number(row.id), departmentId],
+        );
       }
+    } else {
+      // Adding a new row. The department is stored with it.
+      const insertColumns = [...editableColumns, "department_id"];
+      const insertValues = [
+        ...editableColumns.map((columnName) => coerce(columnName, row[columnName])),
+        departmentId,
+      ];
+      const insertedRows = await runQuery<{ id: number }>(
+        `insert into ${table} (${insertColumns.map((columnName) => `"${columnName}"`).join(",")})
+         values (${insertColumns.map((_, valueIndex) => `$${valueIndex + 1}`).join(",")})
+         returning id`,
+        insertValues,
+      );
+      newRowId = insertedRows[0].id;
     }
-    return NextResponse.json({ ...(await snapshot()), newId });
-  } catch (e) {
-    return NextResponse.json({ error: errMsg(e) }, { status: 400 });
+    return NextResponse.json({ ...(await snapshot(departmentId)), newId: newRowId });
+  } catch (thrownError) {
+    return NextResponse.json({ error: errMsg(thrownError) }, { status: 400 });
   }
 }

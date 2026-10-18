@@ -39,10 +39,12 @@ type Move = {
 // Changes who closes on one day. Either two people trade shifts that day, or a closer is replaced by
 // someone who is off that day. Availability, restrictions and max hours are always respected, and moves that
 // keep everyone within their closing limit are preferred. Each press picks randomly among the best options.
+// departmentId limits the swap to that department's schedule and people.
 export async function swapClosers(
   day: number,
+  departmentId: number,
 ): Promise<{ ok: boolean; message: string }> {
-  const snap = await snapshot();
+  const snap = await snapshot(departmentId);
   const s: Settings = snap.settings;
   const rule = breakRule(s);
   const lenOf = (r: { start: string; end: string }) =>
@@ -132,14 +134,17 @@ export async function swapClosers(
   const mv = pool[Math.floor(Math.random() * pool.length)];
 
   await transaction(async (tx) => {
-    await tx("update schedule set employee_id=$1 where id=$2", [
+    // Each update also checks the row belongs to this department, as a second safeguard.
+    await tx("update schedule set employee_id=$1 where id=$2 and department_id=$3", [
       mv.B.id,
       mv.a.id,
+      departmentId,
     ]);
     if (mv.b)
-      await tx("update schedule set employee_id=$1 where id=$2", [
+      await tx("update schedule set employee_id=$1 where id=$2 and department_id=$3", [
         mv.A.id,
         mv.b.id,
+        departmentId,
       ]);
   });
 

@@ -1,12 +1,17 @@
-import { NextResponse } from 'next/server';
-import { errMsg } from '../../../lib/db';
-import { preview } from '../../../lib/generate';
-import { whoAmI } from '../../../lib/access';
+import { NextResponse } from "next/server";
+import { resolveCaller } from "../../../lib/access";
+import { errMsg } from "../../../lib/db";
+import { preview } from "../../../lib/generate";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
-export async function POST(req: Request) {
-  const me = await whoAmI(req);
-  if (me instanceof Response) return me;
-  try { return NextResponse.json(await preview()); } catch (e) { return NextResponse.json({ error: errMsg(e) }, { status: 500 }); }
+// Checks whether the active department's team can cover every required shift. Saves nothing.
+export async function POST(request: Request) {
+  const caller = await resolveCaller(request);
+  if (caller instanceof Response) return caller;
+  try {
+    return NextResponse.json(await preview(caller.departmentId));
+  } catch (thrownError) {
+    return NextResponse.json({ error: errMsg(thrownError) }, { status: 500 });
+  }
 }

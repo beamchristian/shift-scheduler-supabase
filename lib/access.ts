@@ -1,39 +1,118 @@
-import { NextResponse } from 'next/server';
-import { COOKIE, authConfigured, emailForToken } from './auth';
-import { q } from './db';
+import { NextResponse } from "next/server";
+import { authConfigured, COOKIE as SESSION_COOKIE, emailForToken } from "./auth";
+import { runQuery } from "./db";
 
-// Until department switching is added, every request is checked against Deli (department 1).
-export const DEPT = 1;
+// Cookie that remembers which department the person is working in right now.
+export const ACTIVE_DEPARTMENT_COOKIE = "ss_department";
 
-export type Who = { email: string; role: 'owner' | 'manager' };
+// The roles a person can have in a department.
+export type DepartmentRole = "owner" | "manager";
 
-export function tokenFrom(req: Request): string | undefined {
-  const cookie = req.headers.get('cookie') || '';
-  const part = cookie.split(';').map((s) => s.trim()).find((s) => s.startsWith(COOKIE + '='));
-  return part ? decodeURIComponent(part.slice(COOKIE.length + 1)) : undefined;
+// One department the signed-in person belongs to, and their role in it.
+export interface Membership {
+  departmentId: number;
+  departmentName: string;
+  role: DepartmentRole;
 }
 
-// Returns who is calling if they are on the department list. Otherwise returns a response to send back.
-export async function whoAmI(req: Request, opts: { ownerOnly?: boolean } = {}): Promise<Who | Response> {
-  if (!authConfigured()) {
-    if (process.env.NODE_ENV === 'production') {
-      return NextResponse.json({ error: 'Sign-in is not configured.' }, { status: 503 });
-    }
-    return { email: 'local', role: 'owner' };
-  }
-  const email = await emailForToken(tokenFrom(req));
-  if (!email) return NextResponse.json({ error: 'Please sign in.' }, { status: 401 });
+// The person making a request, and the department the request is for.
+export interface Caller {
+  email: string;
+  departmentId: number;
+  departmentName: string;
+  role: DepartmentRole;
+  memberships: Membership[];
+}
 
-  const rows = await q<{ role: string }>(
-    'select role from department_members where department_id = $1 and lower(email) = $2',
-    [DEPT, email],
+// Options for checking a request.
+export interface ResolveCallerOptions {
+  // When true, only owners of the active department are allowed through.
+  ownerOnly?: boolean;
+}
+
+// Reads one cookie's value from a request. Returns undefined when it is not there.
+export function readCookie(request: Request, cookieName: string): string | undefined {
+  const cookieHeader = request.headers.get("cookie") || "";
+  const matchingPart = cookieHeader
+    .split(";")
+    .map((piece) => piece.trim())
+    .find((piece) => piece.startsWith(cookieName + "="));
+  return matchingPart
+    ? decodeURIComponent(matchingPart.slice(cookieName.length + 1))
+    : undefined;
+}
+
+// Lists every department a person is on, with their role in each one.
+export async function listMemberships(email: string): Promise<Membership[]> {
+  const rows = await runQuery<{
+    department_id: number;
+    department_name: string;
+    role: DepartmentRole;
+  }>(
+    `select membership.department_id, department.name as department_name, membership.role
+     from department_members membership
+     join departments department on department.id = membership.department_id
+     where lower(membership.email) = $1
+     order by department.id`,
+    [email.toLowerCase()],
   );
-  const role = rows[0]?.role;
-  if (role !== 'owner' && role !== 'manager') {
-    return NextResponse.json({ error: 'You do not have access to this department. Ask an owner to add you.' }, { status: 403 });
+  return rows.map((row) => ({
+    departmentId: row.department_id,
+    departmentName: row.department_name,
+    role: row.role,
+  }));
+}
+
+// Works out who is calling and which department the request is for.
+// Returns a Caller when the request may continue, or a Response to send back (sign-in or access error).
+export async function resolveCaller(
+  request: Request,
+  options: ResolveCallerOptions = {},
+): Promise<Caller | Response> {
+  // Without sign-in set up, only local development is allowed through, as the Deli department.
+  if (!authConfigured()) {
+    if (process.env.NODE_ENV === "production")
+      return NextResponse.json(
+        { error: "Sign-in is not configured." },
+        { status: 503 },
+      );
+    return {
+      email: "local",
+      departmentId: 1,
+      departmentName: "Deli",
+      role: "owner",
+      memberships: [{ departmentId: 1, departmentName: "Deli", role: "owner" }],
+    };
   }
-  if (opts.ownerOnly && role !== 'owner') {
-    return NextResponse.json({ error: 'Only owners can do this.' }, { status: 403 });
-  }
-  return { email, role };
+
+  const signedInEmail = await emailForToken(readCookie(request, SESSION_COOKIE));
+  if (!signedInEmail)
+    return NextResponse.json({ error: "Please sign in." }, { status: 401 });
+
+  const memberships = await listMemberships(signedInEmail);
+  if (!memberships.length)
+    return NextResponse.json(
+      { error: "You do not have access to any department. Ask an owner to add you on the Access tab." },
+      { status: 403 },
+    );
+
+  // Use the department remembered in the cookie if the person is still on it. Otherwise use their first one.
+  const rememberedDepartmentId = Number(readCookie(request, ACTIVE_DEPARTMENT_COOKIE));
+  const activeMembership =
+    memberships.find((membership) => membership.departmentId === rememberedDepartmentId) ??
+    memberships[0];
+
+  if (options.ownerOnly && activeMembership.role !== "owner")
+    return NextResponse.json(
+      { error: "Only owners of this department can do this." },
+      { status: 403 },
+    );
+
+  return {
+    email: signedInEmail,
+    departmentId: activeMembership.departmentId,
+    departmentName: activeMembership.departmentName,
+    role: activeMembership.role,
+    memberships,
+  };
 }

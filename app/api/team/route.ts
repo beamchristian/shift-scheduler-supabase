@@ -1,72 +1,120 @@
-import { NextResponse } from 'next/server';
-import { DEPT, whoAmI } from '../../../lib/access';
-import { errMsg, q } from '../../../lib/db';
+import { NextResponse } from "next/server";
+import { resolveCaller } from "../../../lib/access";
+import { errMsg, runQuery } from "../../../lib/db";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
-type Member = { id: number; email: string; role: string };
-
-async function list(): Promise<Member[]> {
-  return q<Member>('select id, email, role from department_members where department_id = $1 order by role, email', [DEPT]);
+// One person on the active department's access list.
+interface Member {
+  id: number;
+  email: string;
+  role: string;
 }
 
-async function ownerCount(): Promise<number> {
-  const r = await q<{ n: number }>("select count(*)::int as n from department_members where department_id = $1 and role = 'owner'", [DEPT]);
-  return r[0].n;
+// Lists everyone who can sign in to one department, owners first.
+async function listMembers(departmentId: number): Promise<Member[]> {
+  return runQuery<Member>(
+    "select id, email, role from department_members where department_id = $1 order by role, email",
+    [departmentId],
+  );
 }
 
-async function audit(email: string, action: string, detail: string) {
-  await q('insert into audit_log (department_id, email, action, detail) values ($1, $2, $3, $4)', [DEPT, email, action, detail]);
+// Counts the owners of one department. Used so the last owner cannot be removed or demoted.
+async function countOwners(departmentId: number): Promise<number> {
+  const [ownerCountRow] = await runQuery<{ count: number }>(
+    "select count(*)::int as count from department_members where department_id = $1 and role = 'owner'",
+    [departmentId],
+  );
+  return ownerCountRow.count;
 }
 
-export async function GET(req: Request) {
+// Looks up one access-list entry, but only if it belongs to the given department.
+async function findMember(memberId: number, departmentId: number): Promise<Member | undefined> {
+  const [memberRow] = await runQuery<Member>(
+    "select id, email, role from department_members where id = $1 and department_id = $2",
+    [memberId, departmentId],
+  );
+  return memberRow;
+}
+
+// Writes one line to the audit log, so there is a record of who changed access and when.
+async function recordAuditEntry(departmentId: number, actorEmail: string, action: string, detail: string) {
+  await runQuery(
+    "insert into audit_log (department_id, email, action, detail) values ($1, $2, $3, $4)",
+    [departmentId, actorEmail, action, detail],
+  );
+}
+
+// Returns the access list for the active department, and whether the caller may change it.
+export async function GET(request: Request) {
+  const caller = await resolveCaller(request);
+  if (caller instanceof Response) return caller;
+  return NextResponse.json({
+    members: await listMembers(caller.departmentId),
+    canManage: caller.role === "owner",
+  });
+}
+
+// Changes the access list for the active department. Only owners may do this.
+// Actions: "add" (email and role), "role" (member id and new role), "remove" (member id).
+export async function POST(request: Request) {
+  const caller = await resolveCaller(request, { ownerOnly: true });
+  if (caller instanceof Response) return caller;
+
+  const departmentId = caller.departmentId;
+  const requestBody = (await request.json().catch(() => ({}))) as {
+    action?: string;
+    id?: number;
+    email?: string;
+    role?: string;
+  };
+  const requestedRole =
+    requestBody.role === "owner" || requestBody.role === "manager" ? requestBody.role : null;
+  const requestedMemberId = Number(requestBody.id);
+
   try {
-    const me = await whoAmI(req);
-    if (me instanceof Response) return me;
-    return NextResponse.json({ members: await list(), canManage: me.role === 'owner' });
-  } catch (e) {
-    return NextResponse.json({ error: errMsg(e) }, { status: 500 });
-  }
-}
-
-// Actions: add (email, role), role (id, role), remove (id). Only owners may change access.
-export async function POST(req: Request) {
-  try {
-    const me = await whoAmI(req, { ownerOnly: true });
-    if (me instanceof Response) return me;
-
-    const body = (await req.json().catch(() => ({}))) as { action?: string; id?: number; email?: string; role?: string };
-    const role = body.role === 'owner' || body.role === 'manager' ? body.role : null;
-
-    if (body.action === 'add') {
-      const email = String(body.email || '').trim().toLowerCase();
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ error: 'Enter a valid email address.' }, { status: 400 });
-      if (!role) return NextResponse.json({ error: 'Choose owner or manager.' }, { status: 400 });
-      await q(
-        'insert into department_members (department_id, email, role) values ($1, $2, $3) on conflict (department_id, email) do update set role = excluded.role',
-        [DEPT, email, role],
+    if (requestBody.action === "add") {
+      const newMemberEmail = String(requestBody.email || "").trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newMemberEmail))
+        return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
+      if (!requestedRole)
+        return NextResponse.json({ error: "Choose owner or manager." }, { status: 400 });
+      // If the person is already listed, this only changes their role.
+      await runQuery(
+        `insert into department_members (department_id, email, role) values ($1, $2, $3)
+         on conflict (department_id, email) do update set role = excluded.role`,
+        [departmentId, newMemberEmail, requestedRole],
       );
-      await audit(me.email, 'access_added', `${email} as ${role}`);
-    } else if (body.action === 'role') {
-      if (!role) return NextResponse.json({ error: 'Choose owner or manager.' }, { status: 400 });
-      const target = (await q<Member>('select id, email, role from department_members where id = $1 and department_id = $2', [Number(body.id), DEPT]))[0];
-      if (!target) return NextResponse.json({ error: 'That person was not found.' }, { status: 404 });
-      if (target.role === 'owner' && role !== 'owner' && (await ownerCount()) <= 1)
-        return NextResponse.json({ error: 'Keep at least one owner.' }, { status: 400 });
-      await q('update department_members set role = $1 where id = $2', [role, target.id]);
-      await audit(me.email, 'access_role_changed', `${target.email} to ${role}`);
-    } else if (body.action === 'remove') {
-      const target = (await q<Member>('select id, email, role from department_members where id = $1 and department_id = $2', [Number(body.id), DEPT]))[0];
-      if (!target) return NextResponse.json({ error: 'That person was not found.' }, { status: 404 });
-      if (target.role === 'owner' && (await ownerCount()) <= 1)
-        return NextResponse.json({ error: 'Keep at least one owner.' }, { status: 400 });
-      await q('delete from department_members where id = $1', [target.id]);
-      await audit(me.email, 'access_removed', target.email);
+      await recordAuditEntry(departmentId, caller.email, "access_added", `${newMemberEmail} as ${requestedRole}`);
+    } else if (requestBody.action === "role") {
+      if (!requestedRole)
+        return NextResponse.json({ error: "Choose owner or manager." }, { status: 400 });
+      const memberToChange = await findMember(requestedMemberId, departmentId);
+      if (!memberToChange)
+        return NextResponse.json({ error: "That person was not found." }, { status: 404 });
+      const isDemotingLastOwner =
+        memberToChange.role === "owner" &&
+        requestedRole !== "owner" &&
+        (await countOwners(departmentId)) <= 1;
+      if (isDemotingLastOwner)
+        return NextResponse.json({ error: "Keep at least one owner." }, { status: 400 });
+      await runQuery("update department_members set role = $1 where id = $2", [requestedRole, memberToChange.id]);
+      await recordAuditEntry(departmentId, caller.email, "access_role_changed", `${memberToChange.email} to ${requestedRole}`);
+    } else if (requestBody.action === "remove") {
+      const memberToRemove = await findMember(requestedMemberId, departmentId);
+      if (!memberToRemove)
+        return NextResponse.json({ error: "That person was not found." }, { status: 404 });
+      const isRemovingLastOwner =
+        memberToRemove.role === "owner" && (await countOwners(departmentId)) <= 1;
+      if (isRemovingLastOwner)
+        return NextResponse.json({ error: "Keep at least one owner." }, { status: 400 });
+      await runQuery("delete from department_members where id = $1", [memberToRemove.id]);
+      await recordAuditEntry(departmentId, caller.email, "access_removed", memberToRemove.email);
     } else {
-      return NextResponse.json({ error: 'Unknown action.' }, { status: 400 });
+      return NextResponse.json({ error: "Unknown action." }, { status: 400 });
     }
-    return NextResponse.json({ members: await list(), canManage: true });
-  } catch (e) {
-    return NextResponse.json({ error: errMsg(e) }, { status: 500 });
+    return NextResponse.json({ members: await listMembers(departmentId), canManage: true });
+  } catch (thrownError) {
+    return NextResponse.json({ error: errMsg(thrownError) }, { status: 500 });
   }
 }

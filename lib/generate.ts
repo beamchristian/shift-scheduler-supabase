@@ -33,8 +33,9 @@ export interface Plan {
 
 // write=true builds and saves the schedule using the payroll budget.
 // write=false is a dry run with no payroll limit, used to check whether the team can cover every required shift.
-async function plan(write: boolean): Promise<Plan> {
-  const snap = await snapshot();
+// departmentId decides whose data is read and whose schedule is replaced.
+async function plan(write: boolean, departmentId: number): Promise<Plan> {
+  const snap = await snapshot(departmentId);
   const s: Settings = snap.settings;
   const rule = breakRule(s);
   // All hour accounting (budget, min/max hours) uses scheduled shift hours, or paid hours if that setting is on
@@ -344,8 +345,11 @@ async function plan(write: boolean): Promise<Plan> {
 
   if (write) {
     await transaction(async (tx) => {
-      await tx("delete from schedule");
+      // Replace only this department's schedule. Other departments are not touched.
+      await tx("delete from schedule where department_id = $1", [departmentId]);
       if (placed.length) {
+        // Each new schedule row also records the department it belongs to.
+        const columnsPerRow = 7;
         const params = placed.flatMap(({ t, e }) => [
           t.day,
           t.id,
@@ -353,15 +357,16 @@ async function plan(write: boolean): Promise<Plan> {
           t.name,
           t.start,
           t.end,
+          departmentId,
         ]);
         const rows = placed
           .map(
             (_, k) =>
-              `($${k * 6 + 1},$${k * 6 + 2},$${k * 6 + 3},$${k * 6 + 4},$${k * 6 + 5},$${k * 6 + 6})`,
+              `(${Array.from({ length: columnsPerRow }, (_c, col) => `$${k * columnsPerRow + col + 1}`).join(",")})`,
           )
           .join(",");
         await tx(
-          `insert into schedule (day, template_id, employee_id, name, "start", "end") values ${rows}`,
+          `insert into schedule (day, template_id, employee_id, name, "start", "end", department_id) values ${rows}`,
           params,
         );
       }
@@ -555,9 +560,12 @@ async function plan(write: boolean): Promise<Plan> {
   };
 }
 
-export async function generate(): Promise<string[]> {
-  return (await plan(true)).warnings;
+// Builds and saves the schedule for one department. Returns the warnings to show the person.
+export async function generate(departmentId: number): Promise<string[]> {
+  return (await plan(true, departmentId)).warnings;
 }
-export function preview(): Promise<Plan> {
-  return plan(false);
+
+// Checks one department's staffing without saving anything.
+export function preview(departmentId: number): Promise<Plan> {
+  return plan(false, departmentId);
 }

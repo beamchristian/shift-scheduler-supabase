@@ -1,23 +1,24 @@
 import { NextResponse } from "next/server";
+import { resolveCaller } from "../../../lib/access";
 import { snapshot } from "../../../lib/db";
 import { importAll } from "../../../lib/backup";
-import { whoAmI } from "../../../lib/access";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request) {
-  const me = await whoAmI(req, { ownerOnly: true });
-  if (me instanceof Response) return me;
-  let body: unknown;
+// Replaces the active department's data with an uploaded export file. Owners only, since this replaces everything.
+export async function POST(request: Request) {
+  const caller = await resolveCaller(request, { ownerOnly: true });
+  if (caller instanceof Response) return caller;
+
+  let uploadedFileContent: unknown;
   try {
-    body = await req.json();
+    uploadedFileContent = await request.json();
   } catch {
-    return NextResponse.json(
-      { error: "That file is not valid JSON." },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "That file is not valid JSON." }, { status: 400 });
   }
-  const r = await importAll(body);
-  if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
-  return NextResponse.json(await snapshot());
+
+  const importResult = await importAll(uploadedFileContent, caller.departmentId);
+  if (!importResult.ok)
+    return NextResponse.json({ error: importResult.error }, { status: 400 });
+  return NextResponse.json(await snapshot(caller.departmentId));
 }
