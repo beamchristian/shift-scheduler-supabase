@@ -5,22 +5,30 @@ import { breakRule, logicHours } from "./hours";
 import { allowedFor, availStatus, limitFor, norm } from "./rules";
 import type { Employee, Settings, ShiftTemplate, StoreHour } from "./types";
 
-const D = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const m = (t: string): number => {
-  const [h, mi] = t.split(":");
-  return +h * 60 + +mi;
+// Short day names for messages. Index 1 is Monday.
+const DAY_LABELS = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// Converts "HH:MM" into minutes since midnight, so times can be compared.
+const minutesOfDay = (timeText: string): number => {
+  const [hourText, minuteText] = timeText.split(":");
+  return +hourText * 60 + +minuteText;
 };
 
-type Emp = Employee & {
-  hrs: number;
-  days: Set<number>;
-  sk: string[];
-  closes: number;
+// A person while the schedule is being built. Adds the running totals for this week.
+type EmployeeWorkingState = Employee & {
+  hoursThisWeek: number;
+  daysWorked: Set<number>;
+  skillTags: string[];
+  closesThisWeek: number;
 };
+
+// One suggestion for fixing a shortfall, shown to the person.
 export interface Suggestion {
   title: string;
   detail: string;
 }
+
+// The result of a build or a dry run. Lists every problem found and how well the team covers the shifts.
 export interface Plan {
   warnings: string[];
   unfilled: string[];
@@ -31,532 +39,600 @@ export interface Plan {
   config: string[];
 }
 
-// write=true builds and saves the schedule using the payroll budget.
-// write=false is a dry run with no payroll limit, used to check whether the team can cover every required shift.
+// Builds the schedule for one department.
+// shouldSave = true builds and saves the schedule, using the payroll budget.
+// shouldSave = false is a dry run with no payroll limit. It checks whether the team can cover every required shift.
 // departmentId decides whose data is read and whose schedule is replaced.
-async function plan(write: boolean, departmentId: number): Promise<Plan> {
-  const snap = await snapshot(departmentId);
-  const s: Settings = snap.settings;
-  const rule = breakRule(s);
-  // All hour accounting (budget, min/max hours) uses scheduled shift hours, or paid hours if that setting is on
-  const lenOf = (t: ShiftTemplate) => logicHours(t.start, t.end, rule);
-  const hoursByDay = Object.fromEntries(
-    snap.store_hours.map((h) => [h.day, h]),
+async function plan(shouldSave: boolean, departmentId: number): Promise<Plan> {
+  const departmentSnapshot = await snapshot(departmentId);
+  const settings: Settings = departmentSnapshot.settings;
+  const breakSettings = breakRule(settings);
+
+  // All hour accounting (budget, min and max hours) uses shift hours, or paid hours if that setting is on.
+  const shiftLength = (shiftTemplate: ShiftTemplate) =>
+    logicHours(shiftTemplate.start, shiftTemplate.end, breakSettings);
+
+  // One store-hours row per day. If a day appears twice, the last row wins.
+  const storeHourByDay = Object.fromEntries(
+    departmentSnapshot.store_hours.map((storeHour) => [storeHour.day, storeHour]),
   );
-  const storeHours = Object.values(hoursByDay);
-  const emps: Emp[] = snap.employees.map((e) => ({
-    ...e,
-    hrs: 0,
-    closes: 0,
-    days: new Set<number>(),
-    sk: (e.skills || "")
+  const storeHourList = Object.values(storeHourByDay);
+
+  const employees: EmployeeWorkingState[] = departmentSnapshot.employees.map((employee) => ({
+    ...employee,
+    hoursThisWeek: 0,
+    closesThisWeek: 0,
+    daysWorked: new Set<number>(),
+    skillTags: (employee.skills || "")
       .toLowerCase()
       .split(",")
-      .map((x) => x.trim())
+      .map((skillName) => skillName.trim())
       .filter(Boolean),
   }));
-  const tpls: ShiftTemplate[] = [...snap.shift_templates].sort(
-    (a, b) => a.id - b.id,
+  // Shift templates in the order they were created.
+  const shiftTemplates: ShiftTemplate[] = [...departmentSnapshot.shift_templates].sort(
+    (first, second) => first.id - second.id,
   );
   const warnings: string[] = [];
-  const unfilled: string[] = [];
-  const unfilledSlots: ShiftTemplate[] = [];
-  const badAvail = new Set<string>();
+  const unfilledDescriptions: string[] = [];
+  const unfilledSlotTemplates: ShiftTemplate[] = [];
+  // Keys of people and days already warned about unreadable availability, so each warning shows once.
+  const unreadableAvailabilityKeys = new Set<string>();
 
-  const rate = avgRate(s);
-  if (write && !(rate > 0)) warnings.push("Set the average hourly rate in Settings so payroll can be calculated.");
-  const sales = dailySales(storeHours, s);
-  const budget: Record<number, number> = {};
-  const dayHrs: Record<number, number> = {};
-  for (const h of storeHours) {
-    budget[h.day] = dayBudget(sales[h.day], s, rate).hours;
-    dayHrs[h.day] = 0;
+  // Payroll budget: the hourly rate, and the hours each day and the whole week can use.
+  const hourlyRate = avgRate(settings);
+  if (shouldSave && !(hourlyRate > 0))
+    warnings.push("Set the average hourly rate in Settings so payroll can be calculated.");
+  const dailySalesByDay = dailySales(storeHourList, settings);
+  const dailyHourBudget: Record<number, number> = {};
+  const scheduledHoursByDay: Record<number, number> = {};
+  for (const storeHour of storeHourList) {
+    dailyHourBudget[storeHour.day] = dayBudget(dailySalesByDay[storeHour.day], settings, hourlyRate).hours;
+    scheduledHoursByDay[storeHour.day] = 0;
   }
-  const weeklyBudget = Object.values(budget).reduce((a, b) => a + b, 0);
-  let weekHrs = 0;
-  let avgLen = 10;
+  const weeklyHourBudget = Object.values(dailyHourBudget).reduce(
+    (runningTotal, dayHours) => runningTotal + dayHours,
+    0,
+  );
+  let weekHours = 0;
+  // Average shift length, used to favor part-timers on shorter shifts. Set once the slots are known.
+  let averageShiftLength = 10;
 
-  // A closing shift is one that runs to the store's closing time. The weekly closing limit is a preference, not a hard rule.
-  const isClose = (t: ShiftTemplate) => {
-    const sh = hoursByDay[t.day];
-    return !!sh && m(t.end) >= m(sh.close);
+  // A closing shift runs to the store's closing time. The weekly closing limit is a preference, not a hard rule.
+  const isClosingShift = (shiftTemplate: ShiftTemplate) => {
+    const storeHourForDay = storeHourByDay[shiftTemplate.day];
+    return !!storeHourForDay && minutesOfDay(shiftTemplate.end) >= minutesOfDay(storeHourForDay.close);
   };
-  const limitOf = (e: Emp): number => limitFor(e, s.max_closes);
+  const closingLimitOf = (employee: EmployeeWorkingState): number =>
+    limitFor(employee, settings.max_closes);
 
   // Assignments are collected in memory and saved at the end, so the repair pass can still move them around.
-  const placed: { t: ShiftTemplate; e: Emp }[] = [];
-  const apply = (e: Emp, t: ShiftTemplate) => {
-    const len = lenOf(t);
-    e.hrs += len;
-    e.days.add(t.day);
-    dayHrs[t.day] += len;
-    weekHrs += len;
-    if (isClose(t)) e.closes++;
-    placed.push({ t, e });
+  const placedAssignments: { template: ShiftTemplate; employee: EmployeeWorkingState }[] = [];
+  // Records one shift on a person: their hours, day, closes, and the assignment list.
+  const applyAssignment = (employee: EmployeeWorkingState, shiftTemplate: ShiftTemplate) => {
+    const lengthOfShift = shiftLength(shiftTemplate);
+    employee.hoursThisWeek += lengthOfShift;
+    employee.daysWorked.add(shiftTemplate.day);
+    scheduledHoursByDay[shiftTemplate.day] += lengthOfShift;
+    weekHours += lengthOfShift;
+    if (isClosingShift(shiftTemplate)) employee.closesThisWeek++;
+    placedAssignments.push({ template: shiftTemplate, employee });
   };
 
+  // Whether a person is available for a shift. Warns once about availability text that cannot be read.
   // Availability and restrictions come from rules.ts, the same rules the swap button uses.
-  const isFree = (e: Emp, t: ShiftTemplate): boolean => {
-    const r = availStatus(e, t);
-    if (r.bad && write) {
-      const k = `${e.name}|${t.day}`;
-      if (!badAvail.has(k)) {
-        badAvail.add(k);
+  const isAvailable = (employee: EmployeeWorkingState, shiftTemplate: ShiftTemplate): boolean => {
+    const availabilityResult = availStatus(employee, shiftTemplate);
+    if (availabilityResult.bad && shouldSave) {
+      const warningKey = `${employee.name}|${shiftTemplate.day}`;
+      if (!unreadableAvailabilityKeys.has(warningKey)) {
+        unreadableAvailabilityKeys.add(warningKey);
         warnings.push(
-          `Could not read ${e.name}'s availability for ${D[t.day]} ("${r.bad}"), so it was treated as any time.`,
+          `Could not read ${employee.name}'s availability for ${DAY_LABELS[shiftTemplate.day]} ("${availabilityResult.bad}"), so it was treated as any time.`,
         );
       }
     }
-    return r.ok;
+    return availabilityResult.ok;
   };
-  const canWork = (e: Emp, t: ShiftTemplate): boolean =>
-    allowedFor(e, t) && isFree(e, t);
+  // True when the person may work this shift: the hard rules allow it and they are available.
+  const canWorkShift = (employee: EmployeeWorkingState, shiftTemplate: ShiftTemplate): boolean =>
+    allowedFor(employee, shiftTemplate) && isAvailable(employee, shiftTemplate);
 
-  const candidates = (t: ShiftTemplate) =>
-    emps.filter(
-      (e) =>
-        !e.days.has(t.day) && e.hrs + lenOf(t) <= e.max_hours && canWork(e, t),
+  // People who could take a shift right now: not already working that day, with hours to spare, and allowed.
+  const candidatePeople = (shiftTemplate: ShiftTemplate) =>
+    employees.filter(
+      (employee) =>
+        !employee.daysWorked.has(shiftTemplate.day) &&
+        employee.hoursThisWeek + shiftLength(shiftTemplate) <= employee.max_hours &&
+        canWorkShift(employee, shiftTemplate),
     );
 
-  const place = (t: ShiftTemplate, required: boolean): Emp | null => {
-    const len = lenOf(t);
-    const need = (t.skill || "").toLowerCase().trim();
-    if (write) {
-      if (weekHrs + len > weeklyBudget + 1e-9) return null;
-      if (!required && dayHrs[t.day] + len > budget[t.day]) return null;
+  // Picks the best person for a shift and records it. Returns the person, or null if nobody fits or the budget is used up.
+  // required = true for shifts that must be covered. False for extra shifts, which must stay within the day's budget.
+  const placeShift = (shiftTemplate: ShiftTemplate, isRequired: boolean): EmployeeWorkingState | null => {
+    const lengthOfShift = shiftLength(shiftTemplate);
+    const requiredSkill = (shiftTemplate.skill || "").toLowerCase().trim();
+    if (shouldSave) {
+      if (weekHours + lengthOfShift > weeklyHourBudget + 1e-9) return null;
+      if (!isRequired && scheduledHoursByDay[shiftTemplate.day] + lengthOfShift > dailyHourBudget[shiftTemplate.day])
+        return null;
     }
-    const pick = candidates(t)
-      .map((e) => {
-        let sc = Math.max(0, e.min_hours - e.hrs) * 2 - e.hrs;
-        if (need && e.sk.includes(need)) sc += 100;
-        // Part-timers are favored for shorter shifts, full-timers for longer ones
-        sc += (e.type === "PT" ? 1 : -1) * (avgLen - len) * 20;
-        if (e.type === "FT") sc += 5;
-        // Spread closing shifts around and avoid going past the closing limit
-        if (isClose(t)) {
-          sc -= e.closes * 15;
-          if (e.closes >= limitOf(e)) sc -= 1000;
+    // Score each candidate. The highest score is picked.
+    const bestCandidate = candidatePeople(shiftTemplate)
+      .map((employee) => {
+        let score = Math.max(0, employee.min_hours - employee.hoursThisWeek) * 2 - employee.hoursThisWeek;
+        if (requiredSkill && employee.skillTags.includes(requiredSkill)) score += 100;
+        // Part-timers are favored for shorter shifts, full-timers for longer ones.
+        score += (employee.type === "PT" ? 1 : -1) * (averageShiftLength - lengthOfShift) * 20;
+        if (employee.type === "FT") score += 5;
+        // Spread closing shifts around, and avoid going past the closing limit.
+        if (isClosingShift(shiftTemplate)) {
+          score -= employee.closesThisWeek * 15;
+          if (employee.closesThisWeek >= closingLimitOf(employee)) score -= 1000;
         }
-        return { e, sc };
+        return { employee, score };
       })
-      .sort((a, b) => b.sc - a.sc)[0];
-    if (!pick) return null;
-    apply(pick.e, t);
-    return pick.e;
+      .sort((first, second) => second.score - first.score)[0];
+    if (!bestCandidate) return null;
+    applyAssignment(bestCandidate.employee, shiftTemplate);
+    return bestCandidate.employee;
   };
 
   // Phase 1: required shifts. Always place the slot with the fewest possible people next,
   // so hard-to-cover shifts (like busy Saturdays) are not left with whoever is left over.
   const slots: ShiftTemplate[] = [];
-  for (const t of tpls) {
-    const sh = hoursByDay[t.day];
+  for (const shiftTemplate of shiftTemplates) {
+    const storeHourForDay = storeHourByDay[shiftTemplate.day];
     if (
-      write &&
-      (m(t.start) < m(s.earliest_start) || m(t.start) > m(s.latest_start))
+      shouldSave &&
+      (minutesOfDay(shiftTemplate.start) < minutesOfDay(settings.earliest_start) ||
+        minutesOfDay(shiftTemplate.start) > minutesOfDay(settings.latest_start))
     )
-      warnings.push(
-        `${t.name} on ${D[t.day]} starts outside your allowed start window.`,
-      );
-    if (write && sh && (m(t.start) < m(sh.open) || m(t.end) > m(sh.close)))
-      warnings.push(`${t.name} on ${D[t.day]} runs outside store hours.`);
-    for (let i = 0; i < t.needed; i++) slots.push(t);
+      warnings.push(`${shiftTemplate.name} on ${DAY_LABELS[shiftTemplate.day]} starts outside your allowed start window.`);
+    if (
+      shouldSave &&
+      storeHourForDay &&
+      (minutesOfDay(shiftTemplate.start) < minutesOfDay(storeHourForDay.open) ||
+        minutesOfDay(shiftTemplate.end) > minutesOfDay(storeHourForDay.close))
+    )
+      warnings.push(`${shiftTemplate.name} on ${DAY_LABELS[shiftTemplate.day]} runs outside store hours.`);
+    // One slot for each person the shift needs.
+    for (let personNumber = 0; personNumber < shiftTemplate.needed; personNumber++) slots.push(shiftTemplate);
   }
-  slots.sort((a, b) => a.day - b.day || (b.skill ? 1 : 0) - (a.skill ? 1 : 0));
-  avgLen = slots.length
-    ? slots.reduce((a, t) => a + lenOf(t), 0) / slots.length
+  // Busiest days first, and skill-tagged shifts before untagged ones.
+  slots.sort(
+    (first, second) =>
+      first.day - second.day || (second.skill ? 1 : 0) - (first.skill ? 1 : 0),
+  );
+  averageShiftLength = slots.length
+    ? slots.reduce((runningTotal, slot) => runningTotal + shiftLength(slot), 0) / slots.length
     : 10;
-  const asg: number[] = new Array(slots.length).fill(-1);
-  const pending = slots.map((_, i) => i);
-  while (pending.length) {
-    let bi = 0;
-    let bc = Infinity;
-    pending.forEach((si, i) => {
-      const t = slots[si];
-      const b = slots[pending[bi]];
-      const c = candidates(t).length;
+
+  // For each slot, the index of the person working it, or -1 when it is open.
+  const assignedEmployeeBySlot: number[] = new Array(slots.length).fill(-1);
+  const pendingSlotIndexes = slots.map((_, slotIndex) => slotIndex);
+  while (pendingSlotIndexes.length) {
+    // Choose the pending slot with the fewest candidates. Ties go to skill-tagged shifts, then shorter shifts.
+    let chosenPendingPosition = 0;
+    let fewestCandidates = Infinity;
+    pendingSlotIndexes.forEach((slotIndex, pendingPosition) => {
+      const slotBeingChecked = slots[slotIndex];
+      const currentChoice = slots[pendingSlotIndexes[chosenPendingPosition]];
+      const candidateCount = candidatePeople(slotBeingChecked).length;
       if (
-        c < bc ||
-        (c === bc && t.skill && !b.skill) ||
-        (c === bc && !!t.skill === !!b.skill && lenOf(t) < lenOf(b))
+        candidateCount < fewestCandidates ||
+        (candidateCount === fewestCandidates && slotBeingChecked.skill && !currentChoice.skill) ||
+        (candidateCount === fewestCandidates &&
+          !!slotBeingChecked.skill === !!currentChoice.skill &&
+          shiftLength(slotBeingChecked) < shiftLength(currentChoice))
       ) {
-        bc = c;
-        bi = i;
+        fewestCandidates = candidateCount;
+        chosenPendingPosition = pendingPosition;
       }
     });
-    const si = pending.splice(bi, 1)[0];
-    const e = place(slots[si], true);
-    asg[si] = e ? emps.indexOf(e) : -1;
+    const chosenSlotIndex = pendingSlotIndexes.splice(chosenPendingPosition, 1)[0];
+    const chosenEmployee = placeShift(slots[chosenSlotIndex], true);
+    assignedEmployeeBySlot[chosenSlotIndex] = chosenEmployee ? employees.indexOf(chosenEmployee) : -1;
   }
 
   // Second pass: if the first pass left shifts open, move shifts between people to make room for them.
-  const allowedM = emps.map((e) => slots.map((t) => canWork(e, t)));
-  const open = asg.flatMap((a, i) => (a < 0 ? [i] : []));
-  if (open.length)
+  const allowedMatrix = employees.map((employee) => slots.map((slot) => canWorkShift(employee, slot)));
+  const openSlotIndexes = assignedEmployeeBySlot.flatMap((holderIndex, slotIndex) =>
+    holderIndex < 0 ? [slotIndex] : [],
+  );
+  if (openSlotIndexes.length)
     repair(
-      slots.map((t) => ({ day: t.day, len: lenOf(t) })),
-      emps.map((e) => Number(e.max_hours)),
-      allowedM,
-      asg,
-      open,
-      write ? weeklyBudget - weekHrs : Infinity,
+      slots.map((slot) => ({ day: slot.day, len: shiftLength(slot) })),
+      employees.map((employee) => Number(employee.max_hours)),
+      allowedMatrix,
+      assignedEmployeeBySlot,
+      openSlotIndexes,
+      shouldSave ? weeklyHourBudget - weekHours : Infinity,
     );
 
-  // Third pass: improve the schedule without changing which shifts are covered. It reassigns shifts, or swaps two
-  // people on the same day, whenever that lowers closes over someone's limit (a preference) or hours below someone's minimum.
-  const closeIdx = slots.map(isClose);
-  const slotHrs = slots.map(lenOf);
-  const maxH = emps.map((e) => Number(e.max_hours));
-  const minH = emps.map((e) => Number(e.min_hours));
-  const lim = emps.map(limitOf);
-  const cost = (): number => {
-    const h = emps.map(() => 0);
-    const c = emps.map(() => 0);
-    asg.forEach((e, i) => {
-      if (e >= 0) {
-        h[e] += slotHrs[i];
-        if (closeIdx[i]) c[e]++;
+  // Third pass: improve the schedule without changing which shifts are covered. It moves a shift to someone else,
+  // or swaps two people on the same day, whenever that lowers closes over someone's limit (a preference)
+  // or hours below someone's minimum.
+  const isClosingSlotFlags = slots.map(isClosingShift);
+  const slotHours = slots.map(shiftLength);
+  const maxHoursByEmployee = employees.map((employee) => Number(employee.max_hours));
+  const minHoursByEmployee = employees.map((employee) => Number(employee.min_hours));
+  const closingLimits = employees.map(closingLimitOf);
+  // Total penalty for the current assignment. Lower is better.
+  const totalPenalty = (): number => {
+    const hoursByPerson = employees.map(() => 0);
+    const closesByPerson = employees.map(() => 0);
+    assignedEmployeeBySlot.forEach((holderIndex, slotIndex) => {
+      if (holderIndex >= 0) {
+        hoursByPerson[holderIndex] += slotHours[slotIndex];
+        if (isClosingSlotFlags[slotIndex]) closesByPerson[holderIndex]++;
       }
     });
-    return emps.reduce(
-      (a, _, e) =>
-        a + 1000 * Math.max(0, c[e] - lim[e]) + Math.max(0, minH[e] - h[e]),
+    return employees.reduce(
+      (runningPenalty, _, personIndex) =>
+        runningPenalty +
+        1000 * Math.max(0, closesByPerson[personIndex] - closingLimits[personIndex]) +
+        Math.max(0, minHoursByEmployee[personIndex] - hoursByPerson[personIndex]),
       0,
     );
   };
-  const hoursOf = (e: number) =>
-    asg.reduce((a, x, i) => a + (x === e ? slotHrs[i] : 0), 0);
-  const busyOn = (e: number, day: number) =>
-    asg.some((x, i) => x === e && slots[i].day === day);
-  let best = cost();
-  for (let guard = 0; guard < 300; guard++) {
-    let move: (() => void) | null = null;
-    let bestCost = best;
-    for (let i = 0; i < slots.length; i++) {
-      const ei = asg[i];
-      if (ei < 0) continue;
-      for (let ej = 0; ej < emps.length; ej++) {
-        if (ej === ei || !allowedM[ej][i]) continue;
-        // hand shift i to ej if they are free that day
+  // Total hours a person is working right now.
+  const hoursOfEmployee = (personIndex: number) =>
+    assignedEmployeeBySlot.reduce(
+      (runningHours, holderIndex, slotIndex) =>
+        runningHours + (holderIndex === personIndex ? slotHours[slotIndex] : 0),
+      0,
+    );
+  // Whether a person already has a shift on a given day.
+  const employeeBusyOnDay = (personIndex: number, day: number) =>
+    assignedEmployeeBySlot.some(
+      (holderIndex, slotIndex) => holderIndex === personIndex && slots[slotIndex].day === day,
+    );
+  let bestPenalty = totalPenalty();
+  for (let passCount = 0; passCount < 300; passCount++) {
+    let bestMove: (() => void) | null = null;
+    let bestPenaltyForMove = bestPenalty;
+    for (let slotIndex = 0; slotIndex < slots.length; slotIndex++) {
+      const currentHolderIndex = assignedEmployeeBySlot[slotIndex];
+      if (currentHolderIndex < 0) continue;
+      for (let otherPersonIndex = 0; otherPersonIndex < employees.length; otherPersonIndex++) {
+        if (otherPersonIndex === currentHolderIndex || !allowedMatrix[otherPersonIndex][slotIndex]) continue;
+        // Option A: hand this shift to the other person, if they are free that day.
         if (
-          !busyOn(ej, slots[i].day) &&
-          hoursOf(ej) + slotHrs[i] <= maxH[ej] + 1e-9
+          !employeeBusyOnDay(otherPersonIndex, slots[slotIndex].day) &&
+          hoursOfEmployee(otherPersonIndex) + slotHours[slotIndex] <= maxHoursByEmployee[otherPersonIndex] + 1e-9
         ) {
-          asg[i] = ej;
-          const c = cost();
-          asg[i] = ei;
-          if (c < bestCost - 1e-9) {
-            bestCost = c;
-            move = () => {
-              asg[i] = ej;
+          assignedEmployeeBySlot[slotIndex] = otherPersonIndex;
+          const penaltyIfMoved = totalPenalty();
+          assignedEmployeeBySlot[slotIndex] = currentHolderIndex;
+          if (penaltyIfMoved < bestPenaltyForMove - 1e-9) {
+            bestPenaltyForMove = penaltyIfMoved;
+            bestMove = () => {
+              assignedEmployeeBySlot[slotIndex] = otherPersonIndex;
             };
           }
         }
-        // or swap with the shift ej works that same day
-        const k = slots.findIndex(
-          (t, kk) => asg[kk] === ej && t.day === slots[i].day,
+        // Option B: swap with the shift the other person works that same day.
+        const swapSlotIndex = slots.findIndex(
+          (slot, candidateSlotIndex) =>
+            assignedEmployeeBySlot[candidateSlotIndex] === otherPersonIndex && slot.day === slots[slotIndex].day,
         );
         if (
-          k >= 0 &&
-          allowedM[ei][k] &&
-          hoursOf(ei) - slotHrs[i] + slotHrs[k] <= maxH[ei] + 1e-9 &&
-          hoursOf(ej) - slotHrs[k] + slotHrs[i] <= maxH[ej] + 1e-9
+          swapSlotIndex >= 0 &&
+          allowedMatrix[currentHolderIndex][swapSlotIndex] &&
+          hoursOfEmployee(currentHolderIndex) - slotHours[slotIndex] + slotHours[swapSlotIndex] <=
+            maxHoursByEmployee[currentHolderIndex] + 1e-9 &&
+          hoursOfEmployee(otherPersonIndex) - slotHours[swapSlotIndex] + slotHours[slotIndex] <=
+            maxHoursByEmployee[otherPersonIndex] + 1e-9
         ) {
-          asg[i] = ej;
-          asg[k] = ei;
-          const c = cost();
-          asg[i] = ei;
-          asg[k] = ej;
-          if (c < bestCost - 1e-9) {
-            bestCost = c;
-            move = () => {
-              asg[i] = ej;
-              asg[k] = ei;
+          assignedEmployeeBySlot[slotIndex] = otherPersonIndex;
+          assignedEmployeeBySlot[swapSlotIndex] = currentHolderIndex;
+          const penaltyIfSwapped = totalPenalty();
+          assignedEmployeeBySlot[slotIndex] = currentHolderIndex;
+          assignedEmployeeBySlot[swapSlotIndex] = otherPersonIndex;
+          if (penaltyIfSwapped < bestPenaltyForMove - 1e-9) {
+            bestPenaltyForMove = penaltyIfSwapped;
+            bestMove = () => {
+              assignedEmployeeBySlot[slotIndex] = otherPersonIndex;
+              assignedEmployeeBySlot[swapSlotIndex] = currentHolderIndex;
             };
           }
         }
       }
     }
-    if (!move) break;
-    (move as () => void)();
-    best = bestCost;
+    if (!bestMove) break;
+    (bestMove as () => void)();
+    bestPenalty = bestPenaltyForMove;
   }
 
-  // Rebuild hours, days and closes from the final assignment
-  for (const e of emps) {
-    e.hrs = 0;
-    e.closes = 0;
-    e.days.clear();
+  // Rebuild hours, days and closes from the final assignment.
+  for (const employee of employees) {
+    employee.hoursThisWeek = 0;
+    employee.closesThisWeek = 0;
+    employee.daysWorked.clear();
   }
-  for (const d of Object.keys(dayHrs)) dayHrs[+d] = 0;
-  weekHrs = 0;
-  placed.length = 0;
-  slots.forEach((t, i) => {
-    if (asg[i] >= 0) apply(emps[asg[i]], t);
+  for (const dayKey of Object.keys(scheduledHoursByDay)) scheduledHoursByDay[+dayKey] = 0;
+  weekHours = 0;
+  placedAssignments.length = 0;
+  slots.forEach((slot, slotIndex) => {
+    if (assignedEmployeeBySlot[slotIndex] >= 0) applyAssignment(employees[assignedEmployeeBySlot[slotIndex]], slot);
   });
-  slots.forEach((t, i) => {
-    const label = `${t.name} on ${D[t.day]}`;
-    if (asg[i] < 0) {
-      const overBudget = write && weekHrs + lenOf(t) > weeklyBudget + 1e-9;
+  // Report every shift that is still open.
+  slots.forEach((slot, slotIndex) => {
+    const slotLabel = `${slot.name} on ${DAY_LABELS[slot.day]}`;
+    if (assignedEmployeeBySlot[slotIndex] < 0) {
+      const isOverWeeklyBudget = shouldSave && weekHours + shiftLength(slot) > weeklyHourBudget + 1e-9;
       warnings.push(
-        `Unfilled: ${label} (${overBudget ? `weekly hour budget of ${weeklyBudget.toFixed(1)} reached` : "nobody available: availability, max hours, or already working that day"}).`,
+        `Unfilled: ${slotLabel} (${isOverWeeklyBudget ? `weekly hour budget of ${weeklyHourBudget.toFixed(1)} reached` : "nobody available: availability, max hours, or already working that day"}).`,
       );
-      unfilled.push(label);
-      unfilledSlots.push(t);
-    } else if (write) {
-      const need = (t.skill || "").toLowerCase().trim();
-      if (need && !emps[asg[i]].sk.includes(need))
-        warnings.push(
-          `${label} needs "${need}" but ${emps[asg[i]].name} isn't tagged for it.`,
-        );
+      unfilledDescriptions.push(slotLabel);
+      unfilledSlotTemplates.push(slot);
+    } else if (shouldSave) {
+      const requiredSkill = (slot.skill || "").toLowerCase().trim();
+      const holder = employees[assignedEmployeeBySlot[slotIndex]];
+      if (requiredSkill && !holder.skillTags.includes(requiredSkill))
+        warnings.push(`${slotLabel} needs "${requiredSkill}" but ${holder.name} isn't tagged for it.`);
     }
   });
 
-  // Phase 2: extra shifts up to each day's budget, giving the next one to the day with the most unused budget.
-  if (write && (s.fill_extra == null || Number(s.fill_extra) !== 0)) {
-    const byDay: Record<number, ShiftTemplate[]> = {};
-    for (const t of tpls) (byDay[t.day] ||= []).push(t);
-    const rot: Record<number, number> = {};
-    let progress = true;
-    while (progress) {
-      progress = false;
-      const order = Object.keys(byDay)
+  // Phase 2: extra shifts up to each day's budget. The next one goes to the day with the most unused budget.
+  if (shouldSave && (settings.fill_extra == null || Number(settings.fill_extra) !== 0)) {
+    const shiftsByDay: Record<number, ShiftTemplate[]> = {};
+    for (const shiftTemplate of shiftTemplates) (shiftsByDay[shiftTemplate.day] ||= []).push(shiftTemplate);
+    // Where to start looking next time, for each day, so the same shift is not always tried first.
+    const rotationByDay: Record<number, number> = {};
+    let madeProgress = true;
+    while (madeProgress) {
+      madeProgress = false;
+      const daysByRemainingBudget = Object.keys(shiftsByDay)
         .map(Number)
-        .sort((a, b) => budget[b] - dayHrs[b] - (budget[a] - dayHrs[a]));
-      for (const d of order) {
-        const list = byDay[d];
-        for (let i = 0; i < list.length; i++) {
-          if (place(list[((rot[d] || 0) + i) % list.length], false)) {
-            rot[d] = ((rot[d] || 0) + i + 1) % list.length;
-            progress = true;
+        .sort(
+          (first, second) =>
+            dailyHourBudget[second] - scheduledHoursByDay[second] - (dailyHourBudget[first] - scheduledHoursByDay[first]),
+        );
+      for (const day of daysByRemainingBudget) {
+        const shiftsOnDay = shiftsByDay[day];
+        for (let offset = 0; offset < shiftsOnDay.length; offset++) {
+          const shiftToTry = shiftsOnDay[((rotationByDay[day] || 0) + offset) % shiftsOnDay.length];
+          if (placeShift(shiftToTry, false)) {
+            rotationByDay[day] = ((rotationByDay[day] || 0) + offset + 1) % shiftsOnDay.length;
+            madeProgress = true;
             break;
           }
         }
-        if (progress) break;
+        if (madeProgress) break;
       }
     }
   }
 
-  if (write)
-    for (const e of emps)
-      if (e.closes > limitOf(e))
+  // Warn about anyone who closes more nights than their limit.
+  if (shouldSave)
+    for (const employee of employees)
+      if (employee.closesThisWeek > closingLimitOf(employee))
         warnings.push(
-          `${e.name} closes ${e.closes} nights, over their limit of ${limitOf(e)}. It could not be lowered without breaking availability, max hours or another rule.`,
+          `${employee.name} closes ${employee.closesThisWeek} nights, over their limit of ${closingLimitOf(employee)}. It could not be lowered without breaking availability, max hours or another rule.`,
         );
 
-  if (write) {
-    await transaction(async (tx) => {
+  if (shouldSave) {
+    await transaction(async (transactionQuery) => {
       // Replace only this department's schedule. Other departments are not touched.
-      await tx("delete from schedule where department_id = $1", [departmentId]);
-      if (placed.length) {
+      await transactionQuery("delete from schedule where department_id = $1", [departmentId]);
+      if (placedAssignments.length) {
         // Each new schedule row also records the department it belongs to.
         const columnsPerRow = 7;
-        const params = placed.flatMap(({ t, e }) => [
-          t.day,
-          t.id,
-          e.id,
-          t.name,
-          t.start,
-          t.end,
+        const parameterValues = placedAssignments.flatMap(({ template, employee }) => [
+          template.day,
+          template.id,
+          employee.id,
+          template.name,
+          template.start,
+          template.end,
           departmentId,
         ]);
-        const rows = placed
+        const placeholderGroups = placedAssignments
           .map(
-            (_, k) =>
-              `(${Array.from({ length: columnsPerRow }, (_c, col) => `$${k * columnsPerRow + col + 1}`).join(",")})`,
+            (_, rowIndex) =>
+              `(${Array.from({ length: columnsPerRow }, (_column, columnIndex) => `$${rowIndex * columnsPerRow + columnIndex + 1}`).join(",")})`,
           )
           .join(",");
-        await tx(
-          `insert into schedule (day, template_id, employee_id, name, "start", "end", department_id) values ${rows}`,
-          params,
+        await transactionQuery(
+          `insert into schedule (day, template_id, employee_id, name, "start", "end", department_id) values ${placeholderGroups}`,
+          parameterValues,
         );
       }
     });
   }
 
-  const underMin = emps
-    .filter((e) => e.hrs < e.min_hours)
-    .map((e) => `${e.name} (${e.hrs}/${e.min_hours} hrs)`);
-  if (write)
-    for (const u of underMin)
-      warnings.push(`${u.replace(" (", " is under their minimum hours (")}.`);
+  // People who finish the week below their minimum hours.
+  const underMinimumHours = employees
+    .filter((employee) => employee.hoursThisWeek < employee.min_hours)
+    .map((employee) => `${employee.name} (${employee.hoursThisWeek}/${employee.min_hours} hrs)`);
+  if (shouldSave)
+    for (const underMinimumText of underMinimumHours)
+      warnings.push(`${underMinimumText.replace(" (", " is under their minimum hours (")}.`);
 
-  // Dry run only: data-driven suggestions for fixing what could not be covered.
+  // Dry run only: suggestions for fixing what could not be covered.
   const suggestions: Suggestion[] = [];
-  if (!write) {
-    const minLen = slots.length ? Math.min(...slots.map(lenOf)) : 0;
-    if (unfilledSlots.length) {
-      // 1. Raise max hours: cheapest raise for each unfilled shift, tracking raises already assumed
-      const vh = new Map(
-        emps.map((e) => [e.id, { hrs: e.hrs, days: new Set(e.days) }]),
+  if (!shouldSave) {
+    const shortestShiftLength = slots.length ? Math.min(...slots.map(shiftLength)) : 0;
+    if (unfilledSlotTemplates.length) {
+      // 1. Raise max hours: the cheapest raise for each open shift, counting raises already assumed.
+      // virtualState tracks hours and days as if the suggested shifts were already given out.
+      const virtualState = new Map(
+        employees.map((employee) => [employee.id, { hours: employee.hoursThisWeek, days: new Set(employee.daysWorked) }]),
       );
-      const raises = new Map<number, { to: number; slots: string[] }>();
-      let covered = 0;
-      for (const t of unfilledSlots) {
-        const len = lenOf(t);
-        const best = emps
-          .filter((e) => !vh.get(e.id)!.days.has(t.day) && canWork(e, t))
-          .map((e) => ({
-            e,
-            need: Math.max(
+      const raisesByEmployee = new Map<number, { to: number; slots: string[] }>();
+      let coveredCount = 0;
+      for (const slot of unfilledSlotTemplates) {
+        const lengthOfShift = shiftLength(slot);
+        const cheapestChoice = employees
+          .filter((employee) => !virtualState.get(employee.id)!.days.has(slot.day) && canWorkShift(employee, slot))
+          .map((employee) => ({
+            employee,
+            hoursToRaise: Math.max(
               0,
-              vh.get(e.id)!.hrs + len - (raises.get(e.id)?.to ?? e.max_hours),
+              virtualState.get(employee.id)!.hours + lengthOfShift - (raisesByEmployee.get(employee.id)?.to ?? employee.max_hours),
             ),
           }))
-          .sort((a, b) => a.need - b.need || a.e.id - b.e.id)[0];
-        if (!best) continue;
-        const v = vh.get(best.e.id)!;
-        v.hrs += len;
-        v.days.add(t.day);
-        covered++;
-        const r = raises.get(best.e.id) ?? { to: best.e.max_hours, slots: [] };
-        r.to = Math.max(r.to, v.hrs);
-        r.slots.push(`${t.name} on ${D[t.day]}`);
-        raises.set(best.e.id, r);
+          .sort((first, second) => first.hoursToRaise - second.hoursToRaise || first.employee.id - second.employee.id)[0];
+        if (!cheapestChoice) continue;
+        const chosenState = virtualState.get(cheapestChoice.employee.id)!;
+        chosenState.hours += lengthOfShift;
+        chosenState.days.add(slot.day);
+        coveredCount++;
+        const raise = raisesByEmployee.get(cheapestChoice.employee.id) ?? { to: cheapestChoice.employee.max_hours, slots: [] };
+        raise.to = Math.max(raise.to, chosenState.hours);
+        raise.slots.push(`${slot.name} on ${DAY_LABELS[slot.day]}`);
+        raisesByEmployee.set(cheapestChoice.employee.id, raise);
       }
-      const raised = emps.filter(
-        (e) => (raises.get(e.id)?.to ?? 0) > e.max_hours,
+      const raisedEmployees = employees.filter(
+        (employee) => (raisesByEmployee.get(employee.id)?.to ?? 0) > employee.max_hours,
       );
-      if (raised.length) {
-        const extra = raised.reduce(
-          (a, e) => a + raises.get(e.id)!.to - e.max_hours,
+      if (raisedEmployees.length) {
+        const extraHoursTotal = raisedEmployees.reduce(
+          (runningTotal, employee) => runningTotal + raisesByEmployee.get(employee.id)!.to - employee.max_hours,
           0,
         );
         suggestions.push({
-          title: `Raise max hours (covers ${covered} of ${unfilledSlots.length} open shifts, adds ${+extra.toFixed(1)} hrs, about $${(extra * rate).toFixed(0)})`,
+          title: `Raise max hours (covers ${coveredCount} of ${unfilledSlotTemplates.length} open shifts, adds ${+extraHoursTotal.toFixed(1)} hrs, about $${(extraHoursTotal * hourlyRate).toFixed(0)})`,
           detail:
-            raised
+            raisedEmployees
               .map(
-                (e) =>
-                  `${e.name} from ${e.max_hours} to ${+raises.get(e.id)!.to.toFixed(1)} to take ${raises.get(e.id)!.slots.join(" and ")}`,
+                (employee) =>
+                  `${employee.name} from ${employee.max_hours} to ${+raisesByEmployee.get(employee.id)!.to.toFixed(1)} to take ${raisesByEmployee.get(employee.id)!.slots.join(" and ")}`,
               )
               .join("; ") + ".",
         });
       }
-      // 2. Ask people to open up availability
-      const asks = [
+      // 2. Ask people to open up their availability.
+      const availabilityAskList = [
         ...new Set(
-          unfilledSlots
-            .map((t) => {
-              const names = emps
+          unfilledSlotTemplates
+            .map((slot) => {
+              const namesMarkedUnavailable = employees
                 .filter(
-                  (e) =>
-                    !e.days.has(t.day) &&
-                    e.hrs + lenOf(t) <= e.max_hours &&
-                    allowedFor(e, t) &&
-                    !isFree(e, t),
+                  (employee) =>
+                    !employee.daysWorked.has(slot.day) &&
+                    employee.hoursThisWeek + shiftLength(slot) <= employee.max_hours &&
+                    allowedFor(employee, slot) &&
+                    !isAvailable(employee, slot),
                 )
-                .map((e) => e.name);
-              return names.length
-                ? `${t.name} on ${D[t.day]}: ${names.slice(0, 3).join(", ")}`
+                .map((employee) => employee.name);
+              return namesMarkedUnavailable.length
+                ? `${slot.name} on ${DAY_LABELS[slot.day]}: ${namesMarkedUnavailable.slice(0, 3).join(", ")}`
                 : "";
             })
             .filter(Boolean),
         ),
       ];
-      if (asks.length)
+      if (availabilityAskList.length)
         suggestions.push({
           title: "Ask about availability",
-          detail: `These people have hours left but are marked unavailable. ${asks.join("; ")}.`,
+          detail: `These people have hours left but are marked unavailable. ${availabilityAskList.join("; ")}.`,
         });
-      // 2b. Loosen a restriction
-      const loosen = [
+      // 2b. Loosen a restriction: people who are free, but excluded by a rule or a missing skill tag.
+      const restrictionLoosenList = [
         ...new Set(
-          unfilledSlots
-            .map((t) => {
-              const names = emps
+          unfilledSlotTemplates
+            .map((slot) => {
+              const namesExcludedByRule = employees
                 .filter(
-                  (e) =>
-                    !e.days.has(t.day) &&
-                    e.hrs + lenOf(t) <= e.max_hours &&
-                    isFree(e, t) &&
-                    !allowedFor(e, t),
+                  (employee) =>
+                    !employee.daysWorked.has(slot.day) &&
+                    employee.hoursThisWeek + shiftLength(slot) <= employee.max_hours &&
+                    isAvailable(employee, slot) &&
+                    !allowedFor(employee, slot),
                 )
-                .map((e) => e.name);
-              return names.length
-                ? `${t.name} on ${D[t.day]}: ${names.slice(0, 3).join(", ")}`
+                .map((employee) => employee.name);
+              return namesExcludedByRule.length
+                ? `${slot.name} on ${DAY_LABELS[slot.day]}: ${namesExcludedByRule.slice(0, 3).join(", ")}`
                 : "";
             })
             .filter(Boolean),
         ),
       ];
-      if (loosen.length)
+      if (restrictionLoosenList.length)
         suggestions.push({
           title: "Loosen a restriction or tag a skill",
-          detail: `These people are free and have hours left but are excluded by a restriction or by not having the required skill tag. ${loosen.join("; ")}.`,
+          detail: `These people are free and have hours left but are excluded by a restriction or by not having the required skill tag. ${restrictionLoosenList.join("; ")}.`,
         });
-      // 3. Lower headcount
-      const cuts = new Map<number, { t: ShiftTemplate; n: number }>();
-      for (const t of unfilledSlots)
-        cuts.set(t.id, { t, n: (cuts.get(t.id)?.n ?? 0) + 1 });
+      // 3. Lower the headcount of the shifts that could not be filled.
+      const headcountCuts = new Map<number, { template: ShiftTemplate; count: number }>();
+      for (const slot of unfilledSlotTemplates)
+        headcountCuts.set(slot.id, {
+          template: slot,
+          count: (headcountCuts.get(slot.id)?.count ?? 0) + 1,
+        });
       suggestions.push({
         title: "Lower headcount",
         detail:
-          [...cuts.values()]
+          [...headcountCuts.values()]
             .map(
-              ({ t, n }) =>
-                `${t.name} on ${D[t.day]} from ${t.needed} to ${t.needed - n}`,
+              ({ template, count }) =>
+                `${template.name} on ${DAY_LABELS[template.day]} from ${template.needed} to ${template.needed - count}`,
             )
             .join("; ") + ".",
       });
-      // 4. Hire
+      // 4. Hire. A full-time person covers about four or five shifts a week.
       suggestions.push({
         title: "Add staff",
-        detail: `You are ${unfilledSlots.length} shifts short. One more full-time employee covers about 4 to 5 shifts a week, so roughly ${Math.ceil(unfilledSlots.length / 4)} more would do it.`,
+        detail: `You are ${unfilledSlotTemplates.length} shifts short. One more full-time employee covers about 4 to 5 shifts a week, so roughly ${Math.ceil(unfilledSlotTemplates.length / 4)} more would do it.`,
       });
     }
-    // 5. Short shifts for stranded hours
-    const stranded = emps
-      .map((e) => ({ e, free: e.max_hours - e.hrs }))
-      .filter((x) => x.free >= 2 && x.free < minLen);
-    if (stranded.length && (unfilledSlots.length || underMin.length))
+    // 5. Short shifts for hours that are left over.
+    const strandedHours = employees
+      .map((employee) => ({ employee, freeHours: employee.max_hours - employee.hoursThisWeek }))
+      .filter((stranded) => stranded.freeHours >= 2 && stranded.freeHours < shortestShiftLength);
+    if (strandedHours.length && (unfilledSlotTemplates.length || underMinimumHours.length))
       suggestions.push({
         title: "Add a short shift",
-        detail: `${stranded.map((x) => `${x.e.name} (${+x.free.toFixed(1)} hrs)`).join(", ")} have hours left under their max, but less than a full shift. A short shift template of up to ${Math.floor(Math.max(...stranded.map((x) => x.free)))} hrs would put those hours to use.`,
+        detail: `${strandedHours.map((stranded) => `${stranded.employee.name} (${+stranded.freeHours.toFixed(1)} hrs)`).join(", ")} have hours left under their max, but less than a full shift. A short shift template of up to ${Math.floor(Math.max(...strandedHours.map((stranded) => stranded.freeHours)))} hrs would put those hours to use.`,
       });
-    // 6. Minimum hours that cannot be reached
-    if (underMin.length)
+    // 6. Minimum hours that cannot be reached.
+    if (underMinimumHours.length)
       suggestions.push({
         title: "Minimum hours",
-        detail: `${underMin.join(", ")} cannot reach their minimum with the current shifts. Lower those minimums to what is reachable, widen their availability, or add shorter shifts.`,
+        detail: `${underMinimumHours.join(", ")} cannot reach their minimum with the current shifts. Lower those minimums to what is reachable, widen their availability, or add shorter shifts.`,
       });
   }
 
-  const config: string[] = [];
-  const names = emps.map((e) => e.name.toLowerCase().trim());
-  for (const t of tpls)
-    for (const w of norm(t.only_for))
-      if (!names.includes(w))
-        config.push(
-          `${t.name} on ${D[t.day]} is restricted to "${w}", but no employee has that name.`,
+  // Setup problems that do not depend on the schedule itself: names that match nobody, and skills nobody has.
+  const configProblems: string[] = [];
+  const employeeNamesLower = employees.map((employee) => employee.name.toLowerCase().trim());
+  for (const shiftTemplate of shiftTemplates)
+    for (const restrictedName of norm(shiftTemplate.only_for))
+      if (!employeeNamesLower.includes(restrictedName))
+        configProblems.push(
+          `${shiftTemplate.name} on ${DAY_LABELS[shiftTemplate.day]} is restricted to "${restrictedName}", but no employee has that name.`,
         );
-  const tplNames = tpls.map((t) => t.name.toLowerCase().trim());
-  for (const e of emps)
-    for (const x of norm(e.shifts))
-      if (!tplNames.includes(x))
-        config.push(
-          `${e.name} is limited to "${x}", but no shift template has that name.`,
+  const templateNamesLower = shiftTemplates.map((shiftTemplate) => shiftTemplate.name.toLowerCase().trim());
+  for (const employee of employees)
+    for (const limitedShiftName of norm(employee.shifts))
+      if (!templateNamesLower.includes(limitedShiftName))
+        configProblems.push(
+          `${employee.name} is limited to "${limitedShiftName}", but no shift template has that name.`,
         );
-  for (const t of tpls) {
-    const need = (t.skill || "").toLowerCase().trim();
-    if (need && !emps.some((e) => e.sk.includes(need)))
-      config.push(
-        `${t.name} on ${D[t.day]} requires the skill "${need}", but no employee is tagged with it.`,
+  for (const shiftTemplate of shiftTemplates) {
+    const requiredSkill = (shiftTemplate.skill || "").toLowerCase().trim();
+    if (requiredSkill && !employees.some((employee) => employee.skillTags.includes(requiredSkill)))
+      configProblems.push(
+        `${shiftTemplate.name} on ${DAY_LABELS[shiftTemplate.day]} requires the skill "${requiredSkill}", but no employee is tagged with it.`,
       );
   }
-  const configUnique = [...new Set(config)];
-  if (write) warnings.push(...configUnique);
+  const uniqueConfigProblems = [...new Set(configProblems)];
+  if (shouldSave) warnings.push(...uniqueConfigProblems);
 
-  // How many required shifts the team can actually cover
-  const capacity = slots.length - unfilledSlots.length;
+  // How many of the required shifts the team can actually cover.
+  const capacity = slots.length - unfilledSlotTemplates.length;
 
   return {
     warnings,
-    unfilled,
-    underMin,
+    unfilled: unfilledDescriptions,
+    underMin: underMinimumHours,
     capacity,
     needed: slots.length,
     suggestions,
-    config: configUnique,
+    config: uniqueConfigProblems,
   };
 }
 
