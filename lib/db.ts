@@ -138,9 +138,9 @@ export async function snapshot(): Promise<Snapshot> {
   await ensureSeed();
   const r = await q<Snapshot>(`select
     (select to_jsonb(s) from settings s where s.id = 1) as settings,
-    (select coalesce(jsonb_agg(to_jsonb(h) order by h.day), '[]'::jsonb) from store_hours h) as store_hours,
-    (select coalesce(jsonb_agg(to_jsonb(e) order by e.id), '[]'::jsonb) from employees e) as employees,
-    (select coalesce(jsonb_agg(to_jsonb(t) order by t.day, t."start", t.name, t.id), '[]'::jsonb) from shift_templates t) as shift_templates,
-    (select coalesce(jsonb_agg(to_jsonb(x) order by x.id), '[]'::jsonb) from schedule x) as schedule`);
+    (select coalesce(jsonb_agg(to_jsonb(h) order by h.day), '[]'::jsonb) from store_hours h where h.department_id = 1) as store_hours,
+    (select coalesce(jsonb_agg(to_jsonb(e) order by e.id), '[]'::jsonb) from employees e where e.department_id = 1) as employees,
+    (select coalesce(jsonb_agg(to_jsonb(t) order by t.day, t."start", t.name, t.id), '[]'::jsonb) from shift_templates t where t.department_id = 1) as shift_templates,
+    (select coalesce(jsonb_agg(to_jsonb(x) order by x.id), '[]'::jsonb) from schedule x where x.department_id = 1) as schedule`);
   return r[0];
 }
