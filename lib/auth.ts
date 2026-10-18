@@ -2,7 +2,7 @@
 // Sign-up must be turned off in Supabase, so accounts are created by an owner.
 
 // Name of the cookie that holds the signed-in person's access token.
-export const COOKIE = "ss_access";
+export const SESSION_COOKIE = "ss_access";
 
 // True when both Supabase settings are present. Without them, sign-in cannot work.
 export function authConfigured(): boolean {

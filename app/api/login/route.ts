@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { COOKIE, signIn } from "../../../lib/auth";
+import { SESSION_COOKIE, signIn } from "../../../lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
 
   const response = NextResponse.json({ ok: true });
   // httpOnly keeps the token away from page scripts. It expires when Supabase's token does.
-  response.cookies.set(COOKIE, signInResult.token, {
+  response.cookies.set(SESSION_COOKIE, signInResult.token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",

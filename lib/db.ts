@@ -53,9 +53,6 @@ const makeRunQuery =
 // Runs one SQL statement on the shared pool.
 export const runQuery: RunQuery = makeRunQuery(pool);
 
-// Short alias kept for older files. New code should use runQuery.
-export const q: RunQuery = runQuery;
-
 // Runs several statements together. If one fails, all of them are rolled back.
 // The callback receives a RunQuery that uses the transaction.
 export const transaction = <TransactionResult>(

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { authConfigured, COOKIE as SESSION_COOKIE, emailForToken } from "./auth";
+import { SESSION_COOKIE, authConfigured, emailForToken } from "./auth";
 import { runQuery } from "./db";
 
 // Cookie that remembers which department the person is working in right now.

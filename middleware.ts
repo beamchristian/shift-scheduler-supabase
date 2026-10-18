@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { COOKIE, authConfigured, emailForToken } from "./lib/auth";
+import { SESSION_COOKIE, authConfigured, emailForToken } from "./lib/auth";
 
 // Pages that anyone may open without signing in: the sign-in page and its API.
 const PUBLIC_PATHS = new Set(["/login", "/api/login"]);
@@ -22,7 +22,7 @@ export async function middleware(incomingRequest: NextRequest) {
   }
 
   const signedInEmail = await emailForToken(
-    incomingRequest.cookies.get(COOKIE)?.value,
+    incomingRequest.cookies.get(SESSION_COOKIE)?.value,
   );
   if (signedInEmail) return NextResponse.next();
 
