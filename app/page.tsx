@@ -37,8 +37,21 @@ type Check = {
   config: string[];
   suggestions: { title: string; detail: string }[];
 };
-type Tab = "Schedule" | "Team" | "Availability" | "Shifts" | "Settings" | "Access";
-const TABS: Tab[] = ["Schedule", "Team", "Availability", "Shifts", "Settings", "Access"];
+type Tab =
+  | "Schedule"
+  | "Team"
+  | "Availability"
+  | "Shifts"
+  | "Settings"
+  | "Access";
+const TABS: Tab[] = [
+  "Schedule",
+  "Team",
+  "Availability",
+  "Shifts",
+  "Settings",
+  "Access",
+];
 type Member = { id: number; email: string; role: string };
 
 const api = async <T,>(url: string, body?: unknown): Promise<T> => {
@@ -92,7 +105,7 @@ const card = "rounded-xl border border-slate-200 bg-white shadow-sm";
 const ICONS: Record<Tab, ReactNode> = {
   Access: (
     <>
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <path d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' />
     </>
   ),
   Schedule: (
@@ -458,14 +471,27 @@ export default function Page() {
   const [newRole, setNewRole] = useState<"owner" | "manager">("manager");
   const loadAccess = () =>
     api<{ members: Member[]; canManage: boolean }>("/api/team")
-      .then((r) => { setMembers(r.members); setCanManage(r.canManage); setAccessErr(null); })
+      .then((r) => {
+        setMembers(r.members);
+        setCanManage(r.canManage);
+        setAccessErr(null);
+      })
       .catch((e: Error) => setAccessErr(e.message));
   const accessAction = (body: Record<string, unknown>) =>
     api<{ members: Member[]; canManage: boolean }>("/api/team", body)
-      .then((r) => { setMembers(r.members); setCanManage(r.canManage); setAccessErr(null); })
+      .then((r) => {
+        setMembers(r.members);
+        setCanManage(r.canManage);
+        setAccessErr(null);
+      })
       .catch((e: Error) => setAccessErr(e.message));
-  useEffect(() => { if (tab === "Access") loadAccess(); }, [tab]);
-  const signOut = () => fetch("/api/logout", { method: "POST" }).finally(() => { window.location.href = "/login"; });
+  useEffect(() => {
+    if (tab === "Access") loadAccess();
+  }, [tab]);
+  const signOut = () =>
+    fetch("/api/logout", { method: "POST" }).finally(() => {
+      window.location.href = "/login";
+    });
 
   if (!data)
     return loadError ? (
@@ -747,7 +773,10 @@ export default function Page() {
               </button>
             ))}
           </nav>
-          <button onClick={signOut} className='rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100'>
+          <button
+            onClick={signOut}
+            className='rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100'
+          >
             Sign out
           </button>
         </div>
@@ -841,36 +870,66 @@ export default function Page() {
 
         {tab === "Access" && (
           <>
-            <Heading title="Team access">
-              Who can sign in to this department. Owners can add people and change access. Managers can edit schedules, the forecast and settings, but can't change access.
+            <Heading title='Team access'>
+              Who can sign in to this department. Owners can add people and
+              change access. Managers can edit schedules, the forecast and
+              settings, but can't change access.
             </Heading>
-            {accessErr && <div className="mb-3"><Callout tone="warn">{accessErr}</Callout></div>}
+            {accessErr && (
+              <div className='mb-3'>
+                <Callout tone='warn'>{accessErr}</Callout>
+              </div>
+            )}
             <div className={`${card} overflow-x-auto`}>
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="bg-slate-50">
+              <table className='min-w-full divide-y divide-slate-200 text-sm'>
+                <thead className='bg-slate-50'>
                   <tr>
-                    <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Email</th>
-                    <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Role</th>
-                    <th className="w-24" />
+                    <th className='px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500'>
+                      Email
+                    </th>
+                    <th className='px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500'>
+                      Role
+                    </th>
+                    <th className='w-24' />
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className='divide-y divide-slate-100'>
                   {members.map((m) => (
                     <tr key={m.id}>
-                      <td className="px-3 py-2.5 text-slate-900">{m.email}</td>
-                      <td className="px-3 py-2.5">
+                      <td className='px-3 py-2.5 text-slate-900'>{m.email}</td>
+                      <td className='px-3 py-2.5'>
                         {canManage ? (
-                          <select className={field} value={m.role} onChange={(e) => accessAction({ action: "role", id: m.id, role: e.target.value })}>
-                            <option value="owner">Owner</option>
-                            <option value="manager">Manager</option>
+                          <select
+                            className={field}
+                            value={m.role}
+                            onChange={(e) =>
+                              accessAction({
+                                action: "role",
+                                id: m.id,
+                                role: e.target.value,
+                              })
+                            }
+                          >
+                            <option value='owner'>Owner</option>
+                            <option value='manager'>Manager</option>
                           </select>
                         ) : (
-                          <span className="capitalize">{m.role}</span>
+                          <span className='capitalize'>{m.role}</span>
                         )}
                       </td>
-                      <td className="px-3 py-2.5 text-right">
+                      <td className='px-3 py-2.5 text-right'>
                         {canManage && (
-                          <button onClick={() => { if (window.confirm(`Remove ${m.email} from this department?`)) accessAction({ action: "remove", id: m.id }); }} className="text-sm font-medium text-rose-600 hover:underline">
+                          <button
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  `Remove ${m.email} from this department?`,
+                                )
+                              )
+                                accessAction({ action: "remove", id: m.id });
+                            }}
+                            className='text-sm font-medium text-rose-600 hover:underline'
+                          >
                             Remove
                           </button>
                         )}
@@ -881,25 +940,54 @@ export default function Page() {
               </table>
             </div>
             {canManage && (
-              <div className={`${card} mt-4 flex flex-col gap-3 p-4 sm:flex-row sm:items-end`}>
-                <label className="block flex-1">
-                  <span className="text-sm font-medium text-slate-700">Add person</span>
-                  <input className={`${field} mt-1`} type="email" placeholder="name@detwilermarket.com" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+              <div
+                className={`${card} mt-4 flex flex-col gap-3 p-4 sm:flex-row sm:items-end`}
+              >
+                <label className='block flex-1'>
+                  <span className='text-sm font-medium text-slate-700'>
+                    Add person
+                  </span>
+                  <input
+                    className={`${field} mt-1`}
+                    type='email'
+                    placeholder='name@detwilermarket.com'
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                  />
                 </label>
-                <label className="block sm:w-40">
-                  <span className="text-sm font-medium text-slate-700">Role</span>
-                  <select className={`${field} mt-1`} value={newRole} onChange={(e) => setNewRole(e.target.value as "owner" | "manager")}>
-                    <option value="manager">Manager</option>
-                    <option value="owner">Owner</option>
+                <label className='block sm:w-40'>
+                  <span className='text-sm font-medium text-slate-700'>
+                    Role
+                  </span>
+                  <select
+                    className={`${field} mt-1`}
+                    value={newRole}
+                    onChange={(e) =>
+                      setNewRole(e.target.value as "owner" | "manager")
+                    }
+                  >
+                    <option value='manager'>Manager</option>
+                    <option value='owner'>Owner</option>
                   </select>
                 </label>
-                <button className={btnPrimary} onClick={() => { accessAction({ action: "add", email: newEmail, role: newRole }).then(() => setNewEmail("")); }}>
+                <button
+                  className={btnPrimary}
+                  onClick={() => {
+                    accessAction({
+                      action: "add",
+                      email: newEmail,
+                      role: newRole,
+                    }).then(() => setNewEmail(""));
+                  }}
+                >
                   Add
                 </button>
               </div>
             )}
-            <p className="mt-3 text-xs text-slate-500">
-              Create the person's login in Supabase first (Authentication, then Users, then Add user), since sign-up is turned off. Then add them here with the same email.
+            <p className='mt-3 text-xs text-slate-500'>
+              Create the person's login in Supabase first (Authentication, then
+              Users, then Add user), since sign-up is turned off. Then add them
+              here with the same email.
             </p>
           </>
         )}
