@@ -3,6 +3,34 @@ import { fieldClass } from "../lib/ui/styles";
 import { TAB_ORDER, type CurrentUser, type Tab } from "./types";
 import { TabIcon } from "./ui/TabIcon";
 
+// Puts each person's departments under the store they belong to, in the order they came back.
+function groupMembershipsByStore(
+  memberships: CurrentUser["memberships"],
+): { storeId: number; storeName: string; memberships: CurrentUser["memberships"] }[] {
+  const groups: { storeId: number; storeName: string; memberships: CurrentUser["memberships"] }[] = [];
+  for (const membership of memberships) {
+    const existingGroup = groups.find((group) => group.storeId === membership.storeId);
+    if (existingGroup) existingGroup.memberships.push(membership);
+    else
+      groups.push({
+        storeId: membership.storeId,
+        storeName: membership.storeName,
+        memberships: [membership],
+      });
+  }
+  return groups;
+}
+
+// Names the person's role and store, for example "Store manager · Store 2".
+function roleLabel(user: CurrentUser): string {
+  const roleNames: Record<string, string> = {
+    admin: "Company admin",
+    store_manager: "Store manager",
+    department_manager: "Department manager",
+  };
+  return `${roleNames[user.role] ?? ""} · ${user.storeName}`;
+}
+
 // The top bar: the app name, the screen links (computers only), the department name or switcher, and sign-out.
 export function AppHeader({
   currentUser,
@@ -40,9 +68,14 @@ export function AppHeader({
             </button>
           ))}
         </nav>
+        {currentUser && (
+          <span className='hidden text-xs font-medium text-slate-500 lg:inline'>
+            {roleLabel(currentUser)}
+          </span>
+        )}
         {currentUser &&
           (currentUser.memberships.length > 1 ? (
-            // More than one department: show a dropdown to switch between them.
+            // More than one department: show a dropdown to switch between them, grouped by store.
             <select
               aria-label='Department'
               className={`${fieldClass} w-auto py-1.5 text-sm`}
@@ -51,13 +84,17 @@ export function AppHeader({
                 onSwitchDepartment(Number(changeEvent.target.value))
               }
             >
-              {currentUser.memberships.map((membership) => (
-                <option
-                  key={membership.departmentId}
-                  value={membership.departmentId}
-                >
-                  {membership.departmentName}
-                </option>
+              {groupMembershipsByStore(currentUser.memberships).map((group) => (
+                <optgroup key={group.storeId} label={group.storeName}>
+                  {group.memberships.map((membership) => (
+                    <option
+                      key={membership.departmentId}
+                      value={membership.departmentId}
+                    >
+                      {membership.departmentName}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           ) : (

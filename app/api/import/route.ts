@@ -6,9 +6,10 @@ import { importAll } from "../../../lib/backup";
 
 export const dynamic = "force-dynamic";
 
-// Replaces the active department's data with an uploaded export file. Owners only, since this replaces everything.
+// Replaces the active department's data with an uploaded export file. Only company admins and store managers,
+// since this replaces everything in the department.
 export async function POST(request: Request) {
-  const caller = await resolveCaller(request, { ownerOnly: true });
+  const caller = await resolveCaller(request, { accessManagersOnly: true });
   if (caller instanceof Response) return caller;
 
   let uploadedFileContent: unknown;

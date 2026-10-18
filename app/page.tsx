@@ -61,7 +61,6 @@ export default function Page() {
   const [canManage, setCanManage] = useState(false);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [newEmail, setNewEmail] = useState("");
-  const [newRole, setNewRole] = useState<"owner" | "manager">("manager");
 
   // Marks a newly added row for six seconds, then clears the mark (unless another row was marked since).
   const markRowAsNew = (table: TableName, id: number) => {
@@ -230,15 +229,13 @@ export default function Page() {
       .then(setData)
       .catch((thrownError: Error) => alert(thrownError.message));
 
-  // Access screen actions: add a person, change their role, or remove them.
+  // Access screen actions: add a department manager or remove one.
   const addMember = () =>
-    requestTeam({ action: "add", email: newEmail, role: newRole }).then(() =>
-      setNewEmail(""),
-    );
-  const changeMemberRole = (memberId: number, role: string) =>
-    requestTeam({ action: "role", id: memberId, role });
+    requestTeam({ action: "add", email: newEmail }).then(() => setNewEmail(""));
   const removeMember = (memberId: number) =>
     requestTeam({ action: "remove", id: memberId });
+  const editMember = (memberId: number, editedEmail: string) =>
+    requestTeam({ action: "update", id: memberId, email: editedEmail });
 
   return (
     <div className='min-h-screen pb-24 md:pb-10'>
@@ -304,15 +301,17 @@ export default function Page() {
         {currentTab === "Access" && (
           <AccessScreen
             departmentName={currentUser?.departmentName}
+            storeName={currentUser?.storeName}
+            isCompanyAdmin={currentUser?.isCompanyAdmin ?? false}
+            currentEmail={currentUser?.email ?? ""}
+            canSeeStoreManagers={currentUser?.canSeeStoreManagers ?? false}
             members={members}
             canManage={canManage}
             accessError={accessError}
             newEmail={newEmail}
-            newRole={newRole}
             onNewEmailChange={setNewEmail}
-            onNewRoleChange={setNewRole}
-            onChangeRole={changeMemberRole}
             onRemoveMember={removeMember}
+            onEditMember={editMember}
             onAddMember={addMember}
           />
         )}

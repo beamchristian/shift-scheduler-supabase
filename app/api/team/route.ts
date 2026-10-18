@@ -5,28 +5,19 @@ import { errMsg, runQuery } from "../../../lib/db";
 
 export const dynamic = "force-dynamic";
 
-// One person on the active department's access list.
+// One person on the active department's access list. Everyone on the list is a department manager.
 interface Member {
   id: number;
   email: string;
   role: string;
 }
 
-// Lists everyone who can sign in to one department, owners first.
+// Lists everyone who can work in one department.
 async function listMembers(departmentId: number): Promise<Member[]> {
   return runQuery<Member>(
-    "select id, email, role from department_members where department_id = $1 order by role, email",
+    "select id, email, role from department_members where department_id = $1 order by email",
     [departmentId],
   );
-}
-
-// Counts the owners of one department. Used so the last owner cannot be removed or demoted.
-async function countOwners(departmentId: number): Promise<number> {
-  const [ownerCountRow] = await runQuery<{ count: number }>(
-    "select count(*)::int as count from department_members where department_id = $1 and role = 'owner'",
-    [departmentId],
-  );
-  return ownerCountRow.count;
 }
 
 // Looks up one access-list entry, but only if it belongs to the given department.
@@ -44,14 +35,14 @@ export async function GET(request: Request) {
   if (caller instanceof Response) return caller;
   return NextResponse.json({
     members: await listMembers(caller.departmentId),
-    canManage: caller.role === "owner",
+    canManage: caller.canManageAccess,
   });
 }
 
-// Changes the access list for the active department. Only owners may do this.
-// Actions: "add" (email and role), "role" (member id and new role), "remove" (member id).
+// Adds or removes a department manager. Only company admins and store managers may do this.
+// Actions: "add" (email) and "remove" (member id).
 export async function POST(request: Request) {
-  const caller = await resolveCaller(request, { ownerOnly: true });
+  const caller = await resolveCaller(request, { accessManagersOnly: true });
   if (caller instanceof Response) return caller;
 
   const departmentId = caller.departmentId;
@@ -59,10 +50,7 @@ export async function POST(request: Request) {
     action?: string;
     id?: number;
     email?: string;
-    role?: string;
   };
-  const requestedRole =
-    requestBody.role === "owner" || requestBody.role === "manager" ? requestBody.role : null;
   const requestedMemberId = Number(requestBody.id);
 
   try {
@@ -70,37 +58,32 @@ export async function POST(request: Request) {
       const newMemberEmail = String(requestBody.email || "").trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newMemberEmail))
         return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
-      if (!requestedRole)
-        return NextResponse.json({ error: "Choose owner or manager." }, { status: 400 });
-      // If the person is already listed, this only changes their role.
+      // Adding someone who is already listed does nothing.
       await runQuery(
-        `insert into department_members (department_id, email, role) values ($1, $2, $3)
-         on conflict (department_id, email) do update set role = excluded.role`,
-        [departmentId, newMemberEmail, requestedRole],
+        `insert into department_members (department_id, email, role) values ($1, $2, 'manager')
+         on conflict (department_id, email) do nothing`,
+        [departmentId, newMemberEmail],
       );
-      await recordAuditEntry(departmentId, caller.email, "access_added", `${newMemberEmail} as ${requestedRole}`);
-    } else if (requestBody.action === "role") {
-      if (!requestedRole)
-        return NextResponse.json({ error: "Choose owner or manager." }, { status: 400 });
-      const memberToChange = await findMember(requestedMemberId, departmentId);
-      if (!memberToChange)
+      await recordAuditEntry(departmentId, caller.email, "access_added", newMemberEmail);
+    } else if (requestBody.action === "update") {
+      const memberToEdit = await findMember(requestedMemberId, departmentId);
+      if (!memberToEdit)
         return NextResponse.json({ error: "That person was not found." }, { status: 404 });
-      const isDemotingLastOwner =
-        memberToChange.role === "owner" &&
-        requestedRole !== "owner" &&
-        (await countOwners(departmentId)) <= 1;
-      if (isDemotingLastOwner)
-        return NextResponse.json({ error: "Keep at least one owner." }, { status: 400 });
-      await runQuery("update department_members set role = $1 where id = $2", [requestedRole, memberToChange.id]);
-      await recordAuditEntry(departmentId, caller.email, "access_role_changed", `${memberToChange.email} to ${requestedRole}`);
+      const changedEmail = String(requestBody.email || "").trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(changedEmail))
+        return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
+      const [alreadyListed] = await runQuery(
+        "select id from department_members where department_id = $1 and lower(email) = $2 and id <> $3",
+        [departmentId, changedEmail, memberToEdit.id],
+      );
+      if (alreadyListed)
+        return NextResponse.json({ error: "That person is already on this department." }, { status: 400 });
+      await runQuery("update department_members set email = $1 where id = $2", [changedEmail, memberToEdit.id]);
+      await recordAuditEntry(departmentId, caller.email, "access_changed", `${memberToEdit.email} to ${changedEmail}`);
     } else if (requestBody.action === "remove") {
       const memberToRemove = await findMember(requestedMemberId, departmentId);
       if (!memberToRemove)
         return NextResponse.json({ error: "That person was not found." }, { status: 404 });
-      const isRemovingLastOwner =
-        memberToRemove.role === "owner" && (await countOwners(departmentId)) <= 1;
-      if (isRemovingLastOwner)
-        return NextResponse.json({ error: "Keep at least one owner." }, { status: 400 });
       await runQuery("delete from department_members where id = $1", [memberToRemove.id]);
       await recordAuditEntry(departmentId, caller.email, "access_removed", memberToRemove.email);
     } else {

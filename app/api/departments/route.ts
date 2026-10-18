@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
 import { ACTIVE_DEPARTMENT_COOKIE, resolveCaller } from "../../../lib/access";
 import { recordAuditEntry } from "../../../lib/audit";
-import { ensureDepartmentSeeded, errMsg, runQuery, transaction } from "../../../lib/db";
+import { ensureDepartmentSeeded, errMsg, runQuery } from "../../../lib/db";
 
 export const dynamic = "force-dynamic";
 
 // The longest department name allowed.
 const MAX_NAME_LENGTH = 40;
 
-// Creates a new department with the signed-in person as its owner, then opens it.
-// Only owners may do this, checked for the department they are working in.
+// Creates a new department in the caller's store, then opens it.
+// Only company admins and store managers may do this.
 export async function POST(request: Request) {
-  const caller = await resolveCaller(request, { ownerOnly: true });
+  const caller = await resolveCaller(request, { accessManagersOnly: true });
   if (caller instanceof Response) return caller;
 
   const { name } = (await request.json().catch(() => ({}))) as { name?: string };
@@ -25,10 +25,10 @@ export async function POST(request: Request) {
     );
 
   try {
-    // Department names must be unique, ignoring capitals.
+    // Department names must be unique within the store, ignoring capitals. Other stores may use the same name.
     const [existingDepartment] = await runQuery(
-      "select id from departments where lower(name) = lower($1)",
-      [departmentName],
+      "select id from departments where store_id = $1 and lower(name) = lower($2)",
+      [caller.storeId, departmentName],
     );
     if (existingDepartment)
       return NextResponse.json(
@@ -36,18 +36,12 @@ export async function POST(request: Request) {
         { status: 400 },
       );
 
-    // The department and its first owner are created together, so neither is left on its own.
-    const newDepartmentId = await transaction(async (transactionQuery) => {
-      const [createdRow] = await transactionQuery<{ id: number }>(
-        "insert into departments (name) values ($1) returning id",
-        [departmentName],
-      );
-      await transactionQuery(
-        "insert into department_members (department_id, email, role) values ($1, $2, 'owner')",
-        [createdRow.id, caller.email],
-      );
-      return createdRow.id;
-    });
+    // Admins and store managers see every department in their store, so no access row is needed.
+    const [createdRow] = await runQuery<{ id: number }>(
+      "insert into departments (store_id, name) values ($1, $2) returning id",
+      [caller.storeId, departmentName],
+    );
+    const newDepartmentId = createdRow.id;
 
     // Gives the new department its settings and store hours, so it opens with working defaults.
     await ensureDepartmentSeeded(newDepartmentId);

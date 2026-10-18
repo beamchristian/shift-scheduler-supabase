@@ -4,11 +4,11 @@ import { errMsg, transaction } from "../../../../lib/db";
 
 export const dynamic = "force-dynamic";
 
-// Deletes the active department and everything in it. Only its owners may do this.
+// Deletes the active department and everything in it. Only company admins and store managers may do this.
 // The person must type the department's name to confirm, and must belong to another department,
 // so they are not left with nowhere to go.
 export async function POST(request: Request) {
-  const caller = await resolveCaller(request, { ownerOnly: true });
+  const caller = await resolveCaller(request, { accessManagersOnly: true });
   if (caller instanceof Response) return caller;
 
   const { confirmName } = (await request.json().catch(() => ({}))) as { confirmName?: string };

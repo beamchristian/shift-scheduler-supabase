@@ -68,6 +68,17 @@ export type CurrentUser = {
   email: string;
   departmentId: number;
   departmentName: string;
+  storeId: number;
+  storeName: string;
+  isCompanyAdmin: boolean;
+  canSeeStoreManagers: boolean;
+  canManageAccess: boolean;
   role: string;
-  memberships: { departmentId: number; departmentName: string; role: string }[];
+  memberships: {
+    departmentId: number;
+    departmentName: string;
+    storeId: number;
+    storeName: string;
+    role: string;
+  }[];
 };
