@@ -25,7 +25,8 @@ export function dailySales(
     storeHourRows.map((storeHour) => [
       storeHour.day,
       totalSalesShare > 0
-        ? (Number(settings.weekly_sales) * Number(storeHour.sales_pct)) / totalSalesShare
+        ? (Number(settings.weekly_sales) * Number(storeHour.sales_pct)) /
+          totalSalesShare
         : 0,
     ]),
   );
@@ -37,7 +38,8 @@ export function dayBudget(
   settings: Settings,
   hourlyRate: number,
 ): { target: number; hours: number } {
-  const payrollTargetDollars = (dailySalesAmount * Number(settings.payroll_pct)) / 100;
+  const payrollTargetDollars =
+    (dailySalesAmount * Number(settings.payroll_pct)) / 100;
   return {
     target: payrollTargetDollars,
     hours: hourlyRate > 0 ? payrollTargetDollars / hourlyRate : 0,
@@ -60,9 +62,11 @@ export function requiredHours(
   for (const template of shiftTemplates) {
     const peopleNeeded = Number(template.needed);
     shiftHoursByDay[template.day] =
-      (shiftHoursByDay[template.day] || 0) + peopleNeeded * clockHours(template.start, template.end);
+      (shiftHoursByDay[template.day] || 0) +
+      peopleNeeded * clockHours(template.start, template.end);
     paidHoursByDay[template.day] =
-      (paidHoursByDay[template.day] || 0) + peopleNeeded * paidHours(template.start, template.end, breakSettings);
+      (paidHoursByDay[template.day] || 0) +
+      peopleNeeded * paidHours(template.start, template.end, breakSettings);
     peopleByDay[template.day] = (peopleByDay[template.day] || 0) + peopleNeeded;
   }
   return { shift: shiftHoursByDay, paid: paidHoursByDay, heads: peopleByDay };

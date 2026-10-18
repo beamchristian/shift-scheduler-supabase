@@ -3,25 +3,30 @@ import { COOKIE, signIn } from "../../../lib/auth";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as {
+// Signs a person in with their email and password, and stores the access token in a cookie.
+export async function POST(request: Request) {
+  const requestBody = (await request.json().catch(() => ({}))) as {
     email?: string;
     password?: string;
   };
-  if (!body.email || !body.password)
+  if (!requestBody.email || !requestBody.password)
     return NextResponse.json(
       { error: "Enter your email and password." },
       { status: 400 },
     );
-  const r = await signIn(body.email, body.password);
-  if (!r.ok) return NextResponse.json({ error: r.error }, { status: 401 });
-  const res = NextResponse.json({ ok: true });
-  res.cookies.set(COOKIE, r.token, {
+
+  const signInResult = await signIn(requestBody.email, requestBody.password);
+  if (!signInResult.ok)
+    return NextResponse.json({ error: signInResult.error }, { status: 401 });
+
+  const response = NextResponse.json({ ok: true });
+  // httpOnly keeps the token away from page scripts. It expires when Supabase's token does.
+  response.cookies.set(COOKIE, signInResult.token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: r.maxAge,
+    maxAge: signInResult.maxAge,
   });
-  return res;
+  return response;
 }

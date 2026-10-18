@@ -12,15 +12,25 @@ export interface BreakRule {
 }
 
 // Reads a setting as a number. Uses the fallback when the setting is blank or missing.
-const readNumberSetting = (settingValue: unknown, fallbackValue: number): number =>
-  settingValue === null || settingValue === undefined || String(settingValue).trim() === ""
+const readNumberSetting = (
+  settingValue: unknown,
+  fallbackValue: number,
+): number =>
+  settingValue === null ||
+  settingValue === undefined ||
+  String(settingValue).trim() === ""
     ? fallbackValue
     : Number(settingValue);
 
 // Builds the break rule from the department's settings.
 // Missing values fall back to a 30-minute unpaid break after 5 hours, with shift hours used for logic.
 export function breakRule(
-  settings: Partial<Pick<Settings, "break_minutes" | "break_after" | "breaks_unpaid" | "count_paid_hours">>,
+  settings: Partial<
+    Pick<
+      Settings,
+      "break_minutes" | "break_after" | "breaks_unpaid" | "count_paid_hours"
+    >
+  >,
 ): BreakRule {
   return {
     minutes: Math.max(0, readNumberSetting(settings.break_minutes, 30)),
@@ -39,18 +49,31 @@ export const clockHours = (startTime: string, endTime: string) =>
   (toMinutesSinceMidnight(endTime) - toMinutesSinceMidnight(startTime)) / 60;
 
 // True when a shift is long enough to earn the break.
-export const hasBreak = (startTime: string, endTime: string, breakSettings: BreakRule) =>
-  breakSettings.minutes > 0 && clockHours(startTime, endTime) > breakSettings.after;
+export const hasBreak = (
+  startTime: string,
+  endTime: string,
+  breakSettings: BreakRule,
+) =>
+  breakSettings.minutes > 0 &&
+  clockHours(startTime, endTime) > breakSettings.after;
 
 // Hours that count for pay and for min/max hours.
 // That is the clock length minus the unpaid break, when the shift earns one.
-export const paidHours = (startTime: string, endTime: string, breakSettings: BreakRule) =>
+export const paidHours = (
+  startTime: string,
+  endTime: string,
+  breakSettings: BreakRule,
+) =>
   breakSettings.unpaid && hasBreak(startTime, endTime, breakSettings)
     ? Math.max(0, clockHours(startTime, endTime) - breakSettings.minutes / 60)
     : clockHours(startTime, endTime);
 
 // The hours all scheduling logic uses: shift hours by default, or paid hours when the setting says so.
-export const logicHours = (startTime: string, endTime: string, breakSettings: BreakRule) =>
+export const logicHours = (
+  startTime: string,
+  endTime: string,
+  breakSettings: BreakRule,
+) =>
   breakSettings.countPaid
     ? paidHours(startTime, endTime, breakSettings)
     : clockHours(startTime, endTime);
@@ -66,7 +89,11 @@ export const t12 = (timeText: string, useShortForm = false) => {
       ? ""
       : ":00";
   const meridiemText = useShortForm
-    ? hourOf24 >= 12 ? "p" : "a"
-    : hourOf24 >= 12 ? " PM" : " AM";
+    ? hourOf24 >= 12
+      ? "p"
+      : "a"
+    : hourOf24 >= 12
+      ? " PM"
+      : " AM";
   return `${hourOf12}${minuteText}${meridiemText}`;
 };

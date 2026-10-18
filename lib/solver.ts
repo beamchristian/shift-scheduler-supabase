@@ -33,8 +33,9 @@ export function repair(
   // Hours each person is working right now.
   const hoursByEmployee: number[] = new Array(employeeCount).fill(0);
   // For each person and day, the shift they hold that day, or -1.
-  const slotByEmployeeAndDay: number[][] = Array.from({ length: employeeCount }, () =>
-    new Array(8).fill(-1),
+  const slotByEmployeeAndDay: number[][] = Array.from(
+    { length: employeeCount },
+    () => new Array(8).fill(-1),
   );
   shiftSlots.forEach((slot, slotIndex) => {
     const holderIndex = assignedEmployeeBySlot[slotIndex];
@@ -61,20 +62,28 @@ export function repair(
   let stepCount = 0;
   // Tries to place one shift. Returns true when it succeeds.
   // peopleUsedInThisChain stops the search from looping back to someone already moved.
-  const tryFillSlot = (slotIndex: number, depthLeft: number, peopleUsedInThisChain: Set<number>): boolean => {
+  const tryFillSlot = (
+    slotIndex: number,
+    depthLeft: number,
+    peopleUsedInThisChain: Set<number>,
+  ): boolean => {
     stepCount++;
     if (stepCount > stepLimit) return false;
     const { day: slotDay, len: slotLength } = shiftSlots[slotIndex];
     const candidatePeople: number[] = [];
     for (let employeeIndex = 0; employeeIndex < employeeCount; employeeIndex++)
-      if (allowedMatrix[employeeIndex][slotIndex] && !peopleUsedInThisChain.has(employeeIndex))
+      if (
+        allowedMatrix[employeeIndex][slotIndex] &&
+        !peopleUsedInThisChain.has(employeeIndex)
+      )
         candidatePeople.push(employeeIndex);
 
     // First choice: someone free that day, with hours to spare.
     for (const employeeIndex of candidatePeople) {
       if (
         slotByEmployeeAndDay[employeeIndex][slotDay] < 0 &&
-        hoursByEmployee[employeeIndex] + slotLength <= maxHours[employeeIndex] + HOURS_TOLERANCE
+        hoursByEmployee[employeeIndex] + slotLength <=
+          maxHours[employeeIndex] + HOURS_TOLERANCE
       ) {
         assignSlot(slotIndex, employeeIndex);
         return true;
@@ -87,14 +96,20 @@ export function repair(
       const otherSlotIndex = slotByEmployeeAndDay[employeeIndex][slotDay];
       if (
         otherSlotIndex < 0 ||
-        hoursByEmployee[employeeIndex] - shiftSlots[otherSlotIndex].len + slotLength >
+        hoursByEmployee[employeeIndex] -
+          shiftSlots[otherSlotIndex].len +
+          slotLength >
           maxHours[employeeIndex] + HOURS_TOLERANCE
       )
         continue;
       unassignSlot(otherSlotIndex);
       assignSlot(slotIndex, employeeIndex);
       peopleUsedInThisChain.add(employeeIndex);
-      const otherShiftPlaced = tryFillSlot(otherSlotIndex, depthLeft - 1, peopleUsedInThisChain);
+      const otherShiftPlaced = tryFillSlot(
+        otherSlotIndex,
+        depthLeft - 1,
+        peopleUsedInThisChain,
+      );
       peopleUsedInThisChain.delete(employeeIndex);
       if (otherShiftPlaced) return true;
       unassignSlot(slotIndex);
@@ -108,14 +123,20 @@ export function repair(
         const otherSlotIndex = slotByEmployeeAndDay[employeeIndex][otherDay];
         if (
           otherSlotIndex < 0 ||
-          hoursByEmployee[employeeIndex] - shiftSlots[otherSlotIndex].len + slotLength >
+          hoursByEmployee[employeeIndex] -
+            shiftSlots[otherSlotIndex].len +
+            slotLength >
             maxHours[employeeIndex] + HOURS_TOLERANCE
         )
           continue;
         unassignSlot(otherSlotIndex);
         assignSlot(slotIndex, employeeIndex);
         peopleUsedInThisChain.add(employeeIndex);
-        const otherShiftPlaced = tryFillSlot(otherSlotIndex, depthLeft - 1, peopleUsedInThisChain);
+        const otherShiftPlaced = tryFillSlot(
+          otherSlotIndex,
+          depthLeft - 1,
+          peopleUsedInThisChain,
+        );
         peopleUsedInThisChain.delete(employeeIndex);
         if (otherShiftPlaced) return true;
         unassignSlot(slotIndex);
@@ -127,7 +148,8 @@ export function repair(
 
   // Try each open shift, starting with short chains and going deeper only when needed.
   for (const openSlotIndex of openSlotIndexes) {
-    if (shiftSlots[openSlotIndex].len > extraHoursRoom + HOURS_TOLERANCE) continue;
+    if (shiftSlots[openSlotIndex].len > extraHoursRoom + HOURS_TOLERANCE)
+      continue;
     for (let chainDepth = 0; chainDepth <= maxDepth; chainDepth++) {
       stepCount = 0;
       if (tryFillSlot(openSlotIndex, chainDepth, new Set())) {

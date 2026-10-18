@@ -1,28 +1,40 @@
-import { NextResponse, type NextRequest } from 'next/server';
-import { COOKIE, authConfigured, emailForToken } from './lib/auth';
+import { NextResponse, type NextRequest } from "next/server";
+import { COOKIE, authConfigured, emailForToken } from "./lib/auth";
 
-// Every page and API route needs a signed-in user, except the sign-in page and its API.
-const PUBLIC = new Set(['/login', '/api/login']);
+// Pages that anyone may open without signing in: the sign-in page and its API.
+const PUBLIC_PATHS = new Set(["/login", "/api/login"]);
 
-export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
-  if (PUBLIC.has(pathname)) return NextResponse.next();
+// Runs before every request. Sends people who are not signed in to the sign-in page,
+// or returns a "please sign in" error for API calls. Department access is checked inside each API route.
+export async function middleware(incomingRequest: NextRequest) {
+  const requestedPath = incomingRequest.nextUrl.pathname;
+  if (PUBLIC_PATHS.has(requestedPath)) return NextResponse.next();
 
+  // Without sign-in set up, production is blocked and local development is let through.
   if (!authConfigured()) {
-    if (process.env.NODE_ENV === 'production') {
-      return new NextResponse('Set SUPABASE_URL and SUPABASE_ANON_KEY to use this app.', { status: 503 });
+    if (process.env.NODE_ENV === "production") {
+      return new NextResponse(
+        "Set SUPABASE_URL and SUPABASE_ANON_KEY to use this app.",
+        { status: 503 },
+      );
     }
     return NextResponse.next();
   }
 
-  const email = await emailForToken(req.cookies.get(COOKIE)?.value);
-  if (email) return NextResponse.next();
+  const signedInEmail = await emailForToken(
+    incomingRequest.cookies.get(COOKIE)?.value,
+  );
+  if (signedInEmail) return NextResponse.next();
 
-  if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'Please sign in.' }, { status: 401 });
-  const url = req.nextUrl.clone();
-  url.pathname = '/login';
-  url.search = '';
-  return NextResponse.redirect(url);
+  if (requestedPath.startsWith("/api/"))
+    return NextResponse.json({ error: "Please sign in." }, { status: 401 });
+  const loginPageUrl = incomingRequest.nextUrl.clone();
+  loginPageUrl.pathname = "/login";
+  loginPageUrl.search = "";
+  return NextResponse.redirect(loginPageUrl);
 }
 
-export const config = { matcher: '/((?!_next/static|_next/image|favicon.ico).*)' };
+// Which paths the middleware runs on: everything except Next.js static files and the favicon.
+export const config = {
+  matcher: "/((?!_next/static|_next/image|favicon.ico).*)",
+};

@@ -29,17 +29,31 @@ const toTwentyFourHourMinutes = (
 export const parseWindow = (windowText: string): [number, number] | null => {
   const match = windowText.match(TIME_WINDOW_PATTERN);
   if (!match) return null;
-  const endMinutes = toTwentyFourHourMinutes(+match[4], +(match[5] || 0), match[6]);
-  let startMinutes = toTwentyFourHourMinutes(+match[1], +(match[2] || 0), match[3]);
+  const endMinutes = toTwentyFourHourMinutes(
+    +match[4],
+    +(match[5] || 0),
+    match[6],
+  );
+  let startMinutes = toTwentyFourHourMinutes(
+    +match[1],
+    +(match[2] || 0),
+    match[3],
+  );
   if (!match[3] && match[6]) {
-    const startWithEndMeridiem = toTwentyFourHourMinutes(+match[1], +(match[2] || 0), match[6]);
+    const startWithEndMeridiem = toTwentyFourHourMinutes(
+      +match[1],
+      +(match[2] || 0),
+      match[6],
+    );
     const startWithOppositeMeridiem = toTwentyFourHourMinutes(
       +match[1],
       +(match[2] || 0),
       match[6].startsWith("p") ? "a" : "p",
     );
     startMinutes =
-      startWithEndMeridiem < endMinutes ? startWithEndMeridiem : startWithOppositeMeridiem;
+      startWithEndMeridiem < endMinutes
+        ? startWithEndMeridiem
+        : startWithOppositeMeridiem;
   }
   return [startMinutes, endMinutes];
 };
@@ -60,7 +74,9 @@ export function availStatus(
   shiftTemplate: ShiftTemplate,
 ): { ok: boolean; bad?: string } {
   const availabilityText = String(
-    (employee as unknown as Record<string, string | null>)["avail_" + shiftTemplate.day] ?? "",
+    (employee as unknown as Record<string, string | null>)[
+      "avail_" + shiftTemplate.day
+    ] ?? "",
   )
     .trim()
     .toLowerCase();
@@ -69,13 +85,18 @@ export function availStatus(
   const window = parseWindow(availabilityText);
   if (!window) return { ok: true, bad: availabilityText };
   return {
-    ok: minutesOfDay(shiftTemplate.start) >= window[0] && minutesOfDay(shiftTemplate.end) <= window[1],
+    ok:
+      minutesOfDay(shiftTemplate.start) >= window[0] &&
+      minutesOfDay(shiftTemplate.end) <= window[1],
   };
 }
 
 // Hard rules for a person and a shift. Returns true only when every rule allows it:
 // the shift may name certain people, a person may be limited to certain shift types, and a required skill must be held.
-export function allowedFor(employee: Employee, shiftTemplate: ShiftTemplate): boolean {
+export function allowedFor(
+  employee: Employee,
+  shiftTemplate: ShiftTemplate,
+): boolean {
   const namedPeopleForShift = norm(shiftTemplate.only_for);
   if (
     namedPeopleForShift.length &&
@@ -106,7 +127,12 @@ export function limitFor(
 }
 
 // True when a shift needs a skill that the person is not tagged with.
-export function lacksSkill(employee: Employee, shiftTemplate: ShiftTemplate): boolean {
-  const requiredSkill = String(shiftTemplate.skill ?? "").toLowerCase().trim();
+export function lacksSkill(
+  employee: Employee,
+  shiftTemplate: ShiftTemplate,
+): boolean {
+  const requiredSkill = String(shiftTemplate.skill ?? "")
+    .toLowerCase()
+    .trim();
   return !!requiredSkill && !norm(employee.skills).includes(requiredSkill);
 }

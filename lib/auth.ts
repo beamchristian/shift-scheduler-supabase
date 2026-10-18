@@ -10,7 +10,8 @@ export function authConfigured(): boolean {
 }
 
 // The Supabase project address, without a trailing slash.
-const supabaseProjectUrl = () => String(process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
+const supabaseProjectUrl = () =>
+  String(process.env.SUPABASE_URL ?? "").replace(/\/$/, "");
 // The public anon key that Supabase requires on every auth call.
 const supabaseAnonKey = () => String(process.env.SUPABASE_ANON_KEY ?? "");
 
@@ -19,20 +20,35 @@ const supabaseAnonKey = () => String(process.env.SUPABASE_ANON_KEY ?? "");
 export async function signIn(
   email: string,
   password: string,
-): Promise<{ ok: true; token: string; maxAge: number } | { ok: false; error: string }> {
+): Promise<
+  { ok: true; token: string; maxAge: number } | { ok: false; error: string }
+> {
   if (!authConfigured())
-    return { ok: false, error: "Sign-in is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY." };
+    return {
+      ok: false,
+      error:
+        "Sign-in is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.",
+    };
 
   let supabaseResponse: Response;
   try {
-    supabaseResponse = await fetch(`${supabaseProjectUrl()}/auth/v1/token?grant_type=password`, {
-      method: "POST",
-      headers: { apikey: supabaseAnonKey(), "Content-Type": "application/json" },
-      body: JSON.stringify({ email: email.trim(), password }),
-      cache: "no-store",
-    });
+    supabaseResponse = await fetch(
+      `${supabaseProjectUrl()}/auth/v1/token?grant_type=password`,
+      {
+        method: "POST",
+        headers: {
+          apikey: supabaseAnonKey(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email: email.trim(), password }),
+        cache: "no-store",
+      },
+    );
   } catch {
-    return { ok: false, error: "Could not reach the sign-in service. Try again." };
+    return {
+      ok: false,
+      error: "Could not reach the sign-in service. Try again.",
+    };
   }
 
   const responseBody = (await supabaseResponse.json().catch(() => ({}))) as {
@@ -50,13 +66,21 @@ export async function signIn(
 
 // Returns the signed-in email for an access token, in lower case.
 // Returns null when the token is missing, expired or invalid.
-export async function emailForToken(accessToken: string | undefined): Promise<string | null> {
+export async function emailForToken(
+  accessToken: string | undefined,
+): Promise<string | null> {
   if (!accessToken || !authConfigured()) return null;
   try {
-    const supabaseResponse = await fetch(`${supabaseProjectUrl()}/auth/v1/user`, {
-      headers: { apikey: supabaseAnonKey(), Authorization: `Bearer ${accessToken}` },
-      cache: "no-store",
-    });
+    const supabaseResponse = await fetch(
+      `${supabaseProjectUrl()}/auth/v1/user`,
+      {
+        headers: {
+          apikey: supabaseAnonKey(),
+          Authorization: `Bearer ${accessToken}`,
+        },
+        cache: "no-store",
+      },
+    );
     if (!supabaseResponse.ok) return null;
     const userDetails = (await supabaseResponse.json()) as { email?: string };
     return userDetails.email ? userDetails.email.toLowerCase() : null;

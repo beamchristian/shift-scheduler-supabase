@@ -41,13 +41,11 @@ const WORK_DAYS = [1, 2, 3, 4, 5, 6];
 
 // The built-in PDF fonts only cover Latin text, so anything else becomes a question mark.
 const replaceUnsupportedCharacters = (text: string) =>
-  text.replace(
-    /[^\x20-\x7E -ÿ–—‘’“”•…]/g,
-    "?",
-  );
+  text.replace(/[^\x20-\x7E -ÿ–—‘’“”•…]/g, "?");
 
 // Formats a dollar amount with no cents, for example "$1,234".
-const formatMoney = (amount: number) => "$" + Math.round(amount).toLocaleString("en-US");
+const formatMoney = (amount: number) =>
+  "$" + Math.round(amount).toLocaleString("en-US");
 // Rounds to two decimals for hours, without trailing zeros, for example "7.5" or "8".
 const formatHours = (hours: number) => String(+hours.toFixed(2));
 // Picks the box color for a shift by its name: opening, closing, or anything else.
@@ -77,10 +75,19 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
   let currentTop = PAGE_MARGIN;
 
   // Shortens text with "..." so it fits inside the given width.
-  const fitTextToWidth = (text: string, font: PDFFont, fontSize: number, maxWidth: number) => {
+  const fitTextToWidth = (
+    text: string,
+    font: PDFFont,
+    fontSize: number,
+    maxWidth: number,
+  ) => {
     let shortenedText = replaceUnsupportedCharacters(text);
-    if (font.widthOfTextAtSize(shortenedText, fontSize) <= maxWidth) return shortenedText;
-    while (shortenedText.length > 1 && font.widthOfTextAtSize(shortenedText + "...", fontSize) > maxWidth)
+    if (font.widthOfTextAtSize(shortenedText, fontSize) <= maxWidth)
+      return shortenedText;
+    while (
+      shortenedText.length > 1 &&
+      font.widthOfTextAtSize(shortenedText + "...", fontSize) > maxWidth
+    )
       shortenedText = shortenedText.slice(0, -1);
     return shortenedText + "...";
   };
@@ -127,7 +134,11 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
       color,
     });
   // Draws a thin horizontal line across the page at a height from the top.
-  const drawHorizontalLine = (top: number, fromX = PAGE_MARGIN, toX = PAGE_WIDTH - PAGE_MARGIN) =>
+  const drawHorizontalLine = (
+    top: number,
+    fromX = PAGE_MARGIN,
+    toX = PAGE_WIDTH - PAGE_MARGIN,
+  ) =>
     currentPage.drawLine({
       start: { x: fromX, y: PAGE_HEIGHT - top },
       end: { x: toX, y: PAGE_HEIGHT - top },
@@ -163,7 +174,15 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
       ? `Lunch ${breakRuleInUse.minutes} min ${breakRuleInUse.unpaid ? "unpaid" : "paid"} on shifts over ${formatHours(breakRuleInUse.after)} hrs`
       : "No lunch breaks",
   ].join("   |   ");
-  drawText(subtitleParts, PAGE_MARGIN, PAGE_WIDTH - 2 * PAGE_MARGIN, currentTop + 5, 8.5, regularFont, COLORS.mute);
+  drawText(
+    subtitleParts,
+    PAGE_MARGIN,
+    PAGE_WIDTH - 2 * PAGE_MARGIN,
+    currentTop + 5,
+    8.5,
+    regularFont,
+    COLORS.mute,
+  );
   currentTop += 15;
   // Payroll as a share of sales, for display.
   const percentOfSales = (dollars: number) =>
@@ -195,8 +214,11 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
   const DAY_COLUMN_WIDTH = 78;
   const TOTAL_COLUMN_WIDTH = 92;
   // True when a figure is over its allowance (with a small rounding margin).
-  const isOverAllowance = (actual: number, allowed: number) => actual > allowed + 0.005;
-  const referenceRowLabel = breakRuleInUse.countPaid ? "shift length" : "paid, minus lunch";
+  const isOverAllowance = (actual: number, allowed: number) =>
+    actual > allowed + 0.005;
+  const referenceRowLabel = breakRuleInUse.countPaid
+    ? "shift length"
+    : "paid, minus lunch";
   // One line of the labor matrix. `sub` lines are the smaller reference figures.
   type MatrixRow = {
     label: string;
@@ -238,13 +260,17 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
       },
       {
         label: "Cost to fully staff",
-        cells: report.days.map((dayRow) => formatMoney(dayRow.req * hourlyRate)),
+        cells: report.days.map((dayRow) =>
+          formatMoney(dayRow.req * hourlyRate),
+        ),
         total: formatMoney(totals.reqCost),
       },
       {
         label: referenceRowLabel,
         sub: true,
-        cells: report.days.map((dayRow) => formatMoney(dayRow.reqAlt * hourlyRate)),
+        cells: report.days.map((dayRow) =>
+          formatMoney(dayRow.reqAlt * hourlyRate),
+        ),
         total: formatMoney(totals.reqCostAlt),
       },
       {
@@ -272,10 +298,14 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
       },
       {
         label: "+/- hours",
-        cells: report.days.map((dayRow) => formatHours(dayRow.sched - dayRow.allowed)),
+        cells: report.days.map((dayRow) =>
+          formatHours(dayRow.sched - dayRow.allowed),
+        ),
         total: formatHours(totals.sched - totals.allowed),
         strong: true,
-        flag: report.days.map((dayRow) => isOverAllowance(dayRow.sched, dayRow.allowed)),
+        flag: report.days.map((dayRow) =>
+          isOverAllowance(dayRow.sched, dayRow.allowed),
+        ),
         totalFlag: isOverAllowance(totals.sched, totals.allowed),
       },
     ] as MatrixRow[]
@@ -283,8 +313,22 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
   const MAIN_ROW_HEIGHT = 15.5;
   const SUB_ROW_HEIGHT = 12.5;
   const HEADER_ROW_HEIGHT = 17;
-  drawFilledRectangle(PAGE_MARGIN, currentTop, PAGE_WIDTH - 2 * PAGE_MARGIN, HEADER_ROW_HEIGHT, COLORS.head);
-  drawText("Labor matrix", PAGE_MARGIN + 6, LABEL_COLUMN_WIDTH - 8, currentTop + HEADER_ROW_HEIGHT / 2, 8.5, boldFont, COLORS.white);
+  drawFilledRectangle(
+    PAGE_MARGIN,
+    currentTop,
+    PAGE_WIDTH - 2 * PAGE_MARGIN,
+    HEADER_ROW_HEIGHT,
+    COLORS.head,
+  );
+  drawText(
+    "Labor matrix",
+    PAGE_MARGIN + 6,
+    LABEL_COLUMN_WIDTH - 8,
+    currentTop + HEADER_ROW_HEIGHT / 2,
+    8.5,
+    boldFont,
+    COLORS.white,
+  );
   WORK_DAYS.forEach((dayNumber, columnIndex) =>
     drawText(
       DAY_LABELS[dayNumber],
@@ -313,7 +357,14 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
     const fontSize = matrixRow.sub ? 7.5 : 8.5;
     const textColor = matrixRow.sub ? COLORS.mute : COLORS.ink;
     // Every other row gets a light background, to make the rows easier to follow.
-    if (rowIndex % 2 === 1) drawFilledRectangle(PAGE_MARGIN, currentTop, PAGE_WIDTH - 2 * PAGE_MARGIN, rowHeight, COLORS.band);
+    if (rowIndex % 2 === 1)
+      drawFilledRectangle(
+        PAGE_MARGIN,
+        currentTop,
+        PAGE_WIDTH - 2 * PAGE_MARGIN,
+        rowHeight,
+        COLORS.band,
+      );
     const rowFont = matrixRow.strong ? boldFont : regularFont;
     drawText(
       matrixRow.label,
@@ -361,8 +412,22 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
   const drawGridHeader = (headerTitle: string) => {
     drawText(headerTitle, PAGE_MARGIN, 300, currentTop + 6, 11, boldFont);
     currentTop += 15;
-    drawFilledRectangle(PAGE_MARGIN, currentTop, PAGE_WIDTH - 2 * PAGE_MARGIN, 18, COLORS.head);
-    drawText("Employee", PAGE_MARGIN + 6, EMPLOYEE_COLUMN_WIDTH - 8, currentTop + 9, 8.5, boldFont, COLORS.white);
+    drawFilledRectangle(
+      PAGE_MARGIN,
+      currentTop,
+      PAGE_WIDTH - 2 * PAGE_MARGIN,
+      18,
+      COLORS.head,
+    );
+    drawText(
+      "Employee",
+      PAGE_MARGIN + 6,
+      EMPLOYEE_COLUMN_WIDTH - 8,
+      currentTop + 9,
+      8.5,
+      boldFont,
+      COLORS.white,
+    );
     WORK_DAYS.forEach((dayNumber, columnIndex) =>
       drawText(
         DAY_LABELS[dayNumber],
@@ -388,7 +453,10 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
     if (report.showAlt)
       drawText(
         breakRuleInUse.countPaid ? "Shift hrs" : "Paid hrs",
-        PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + 6 * SHIFT_COLUMN_WIDTH + PAID_COLUMN_WIDTH,
+        PAGE_MARGIN +
+          EMPLOYEE_COLUMN_WIDTH +
+          6 * SHIFT_COLUMN_WIDTH +
+          PAID_COLUMN_WIDTH,
         SECOND_HOURS_COLUMN_WIDTH,
         currentTop + 9,
         8,
@@ -398,7 +466,11 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
       );
     drawText(
       "Closes",
-      PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + 6 * SHIFT_COLUMN_WIDTH + PAID_COLUMN_WIDTH + SECOND_HOURS_COLUMN_WIDTH,
+      PAGE_MARGIN +
+        EMPLOYEE_COLUMN_WIDTH +
+        6 * SHIFT_COLUMN_WIDTH +
+        PAID_COLUMN_WIDTH +
+        SECOND_HOURS_COLUMN_WIDTH,
       CLOSES_COLUMN_WIDTH,
       currentTop + 9,
       8,
@@ -411,7 +483,13 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
   drawGridHeader("Schedule");
 
   if (!snapshot.schedule.length) {
-    drawFilledRectangle(PAGE_MARGIN, currentTop, PAGE_WIDTH - 2 * PAGE_MARGIN, 40, COLORS.band);
+    drawFilledRectangle(
+      PAGE_MARGIN,
+      currentTop,
+      PAGE_WIDTH - 2 * PAGE_MARGIN,
+      40,
+      COLORS.band,
+    );
     drawText(
       "No schedule has been generated yet.",
       PAGE_MARGIN,
@@ -427,12 +505,22 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
     const EMPLOYEE_ROW_HEIGHT = 26;
     for (const employeeRow of report.employees) {
       // Start a new page when this row would run into the footer.
-      if (currentTop + EMPLOYEE_ROW_HEIGHT > PAGE_HEIGHT - BOTTOM_RESERVED_SPACE) {
+      if (
+        currentTop + EMPLOYEE_ROW_HEIGHT >
+        PAGE_HEIGHT - BOTTOM_RESERVED_SPACE
+      ) {
         currentPage = pdfDocument.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
         currentTop = PAGE_MARGIN;
         drawGridHeader("Schedule (continued)");
       }
-      drawText(employeeRow.emp.name, PAGE_MARGIN + 6, EMPLOYEE_COLUMN_WIDTH - 10, currentTop + 9, 8.5, boldFont);
+      drawText(
+        employeeRow.emp.name,
+        PAGE_MARGIN + 6,
+        EMPLOYEE_COLUMN_WIDTH - 10,
+        currentTop + 9,
+        8.5,
+        boldFont,
+      );
       drawText(
         `${employeeRow.emp.type}${employeeRow.emp.position ? " | " + employeeRow.emp.position : ""}`,
         PAGE_MARGIN + 6,
@@ -444,11 +532,32 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
       );
       // One colored box per day the person works.
       WORK_DAYS.forEach((dayNumber, columnIndex) => {
-        const shiftForDay = employeeRow.shifts.find((scheduleRow) => scheduleRow.day === dayNumber);
+        const shiftForDay = employeeRow.shifts.find(
+          (scheduleRow) => scheduleRow.day === dayNumber,
+        );
         if (!shiftForDay) return;
-        const boxLeft = PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + columnIndex * SHIFT_COLUMN_WIDTH + 2;
-        drawFilledRectangle(boxLeft, currentTop + 2, SHIFT_COLUMN_WIDTH - 4, EMPLOYEE_ROW_HEIGHT - 4, shiftFillColor(shiftForDay.name));
-        drawText(shiftForDay.name, boxLeft, SHIFT_COLUMN_WIDTH - 4, currentTop + 9.5, 7.2, boldFont, COLORS.ink, "center");
+        const boxLeft =
+          PAGE_MARGIN +
+          EMPLOYEE_COLUMN_WIDTH +
+          columnIndex * SHIFT_COLUMN_WIDTH +
+          2;
+        drawFilledRectangle(
+          boxLeft,
+          currentTop + 2,
+          SHIFT_COLUMN_WIDTH - 4,
+          EMPLOYEE_ROW_HEIGHT - 4,
+          shiftFillColor(shiftForDay.name),
+        );
+        drawText(
+          shiftForDay.name,
+          boxLeft,
+          SHIFT_COLUMN_WIDTH - 4,
+          currentTop + 9.5,
+          7.2,
+          boldFont,
+          COLORS.ink,
+          "center",
+        );
         drawText(
           `${t12(shiftForDay.start, true)} - ${t12(shiftForDay.end, true)}${hasBreak(shiftForDay.start, shiftForDay.end, breakRuleInUse) ? "" : ""}`,
           boxLeft,
@@ -487,7 +596,10 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
       if (report.showAlt)
         drawText(
           formatHours(employeeRow.alt),
-          PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + 6 * SHIFT_COLUMN_WIDTH + PAID_COLUMN_WIDTH,
+          PAGE_MARGIN +
+            EMPLOYEE_COLUMN_WIDTH +
+            6 * SHIFT_COLUMN_WIDTH +
+            PAID_COLUMN_WIDTH,
           SECOND_HOURS_COLUMN_WIDTH,
           currentTop + 13,
           8.5,
@@ -497,7 +609,11 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
         );
       drawText(
         String(employeeRow.closes),
-        PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + 6 * SHIFT_COLUMN_WIDTH + PAID_COLUMN_WIDTH + SECOND_HOURS_COLUMN_WIDTH,
+        PAGE_MARGIN +
+          EMPLOYEE_COLUMN_WIDTH +
+          6 * SHIFT_COLUMN_WIDTH +
+          PAID_COLUMN_WIDTH +
+          SECOND_HOURS_COLUMN_WIDTH,
         CLOSES_COLUMN_WIDTH,
         currentTop + 13,
         8.5,
@@ -520,7 +636,15 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
   allPages.forEach((page, pageIndex) => {
     currentPage = page;
     drawHorizontalLine(PAGE_HEIGHT - 30);
-    drawText(hoursNote, PAGE_MARGIN, 560, PAGE_HEIGHT - 20, 7, regularFont, COLORS.mute);
+    drawText(
+      hoursNote,
+      PAGE_MARGIN,
+      560,
+      PAGE_HEIGHT - 20,
+      7,
+      regularFont,
+      COLORS.mute,
+    );
     drawText(
       `Page ${pageIndex + 1} of ${allPages.length}`,
       PAGE_WIDTH - PAGE_MARGIN - 100,
