@@ -1,0 +1,137 @@
+From 1107c0fa9bb66a373ab59fed6939c0b1db0380a2 Mon Sep 17 00:00:00 2001
+From: ckbeamcoding <ckbeamcoding@gmail.com>
+Date: Sun, 18 Oct 2026 14:35:51 -0400
+Subject: [PATCH] Pick required shift skills from the Team page's skills
+
+The Required skill column on Shifts is now a dropdown of the skills people are tagged with on the Team page, with a blank choice meaning anyone. A saved skill that is no longer on the team still shows, so it is not lost until someone changes it. Stored values and the scheduling rules are unchanged.
+
+Co-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>
+
+Claude-Session: https://claude.ai/code/session_01Dbibe2AFHP4aR2mKEVHoEr
+---
+ app/page.tsx                              |  1 +
+ components/EditableTable/EditableCell.tsx | 12 ++++++++--
+ components/screens/ShiftsScreen.tsx       | 27 ++++++++++++++++++-----
+ 3 files changed, 32 insertions(+), 8 deletions(-)
+
+diff --git a/app/page.tsx b/app/page.tsx
+index 336f2c6..5226951 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -284,6 +284,7 @@ export default function Page() {
+         {currentTab === "Shifts" && (
+           <ShiftsScreen
+             shiftTemplates={data.shift_templates}
++            employees={data.employees}
+             onDataChange={setData}
+             highlightedId={highlightedIdFor("shift_templates")}
+             onRowAdded={(newRowId) => markRowAsNew("shift_templates", newRowId)}
+diff --git a/components/EditableTable/EditableCell.tsx b/components/EditableTable/EditableCell.tsx
+index 7be9da1..eabcc51 100644
+--- a/components/EditableTable/EditableCell.tsx
++++ b/components/EditableTable/EditableCell.tsx
+@@ -6,6 +6,14 @@ import { TagsInput } from "../ui/TagsInput";
+ 
+ // One editable cell. Shows a dropdown, a text box or a plain label, depending on the column.
+ // Saves the whole row when the value changes.
++// The choices for a dropdown. If the saved value is not one of them (for example, a skill that was
++// removed from the team), it is added at the top so the value is still shown and is not lost.
++const choicesForCell = (choices: (string | number)[], currentValue: string | number | null) => {
++  const currentText = String(currentValue ?? "");
++  const isKnownChoice = choices.some((choice) => String(choice) === currentText);
++  return isKnownChoice ? choices : [currentText, ...choices];
++};
++
+ export function EditableCell({
+   column,
+   row,
+@@ -41,12 +49,12 @@ export function EditableCell({
+     return (
+       <select
+         className={fieldClass}
+-        defaultValue={String(row[column.key])}
++        defaultValue={String(row[column.key] ?? "")}
+         onChange={(changeEvent) =>
+           onSaveRow({ ...row, [column.key]: changeEvent.target.value })
+         }
+       >
+-        {column.options.map((optionValue) => (
++        {choicesForCell(column.options, row[column.key]).map((optionValue) => (
+           <option key={optionValue} value={optionValue}>
+             {column.formatOption ? column.formatOption(optionValue) : optionValue}
+           </option>
+diff --git a/components/screens/ShiftsScreen.tsx b/components/screens/ShiftsScreen.tsx
+index 2156c34..b6e51f7 100644
+--- a/components/screens/ShiftsScreen.tsx
++++ b/components/screens/ShiftsScreen.tsx
+@@ -1,11 +1,12 @@
+ import type { Snapshot } from "../../lib/types";
+-import { DAY_SHORT_LABELS, WORK_DAYS, asTableRows } from "../../lib/ui/format";
++import { DAY_SHORT_LABELS, WORK_DAYS, asTableRows, splitCommaList } from "../../lib/ui/format";
+ import { EditableTable } from "../EditableTable/EditableTable";
+ import type { ColumnDefinition, TableRow } from "../types";
+ import { Heading } from "../ui/Heading";
+ 
+ // Columns of the shift template table. The day column is a dropdown showing short day names.
+-const SHIFT_COLUMNS: ColumnDefinition[] = [
++// The required skill is a dropdown of the skills on the Team page; blank means anyone can work the shift.
++const buildShiftColumns = (skillChoices: string[]): ColumnDefinition[] => [
+   { key: "name", label: "Shift" },
+   {
+     key: "day",
+@@ -16,34 +17,48 @@ const SHIFT_COLUMNS: ColumnDefinition[] = [
+   { key: "start", label: "Start", inputType: "time" },
+   { key: "end", label: "End", inputType: "time" },
+   { key: "needed", label: "People needed", inputType: "number" },
+-  { key: "skill", label: "Required skill (optional)" },
++  {
++    key: "skill",
++    label: "Required skill",
++    options: skillChoices,
++    formatOption: (skillValue) => (skillValue === "" ? "None" : String(skillValue)),
++  },
+   { key: "only_for", label: "Only these people (blank = anyone)" },
+ ];
+ 
+ // The Shifts screen: the shift templates for each day, with duplicate support.
+ export function ShiftsScreen({
+   shiftTemplates,
++  employees,
+   onDataChange,
+   highlightedId,
+   onRowAdded,
+ }: {
+   shiftTemplates: Snapshot["shift_templates"];
++  employees: Snapshot["employees"];
+   onDataChange: (newSnapshot: Snapshot) => void;
+   highlightedId: number | null;
+   onRowAdded: (newRowId: number) => void;
+ }) {
++  // The skill choices are the skills people are tagged with on the Team page, with a blank choice first.
++  const teamSkillChoices = [
++    "",
++    ...Array.from(new Set(employees.flatMap((employee) => splitCommaList(employee.skills)))).sort(),
++  ];
++
+   return (
+     <>
+       <Heading title='Shift templates'>
+         One row per shift type per day. Use the copy icon (or Duplicate on a
+         phone) to clone a shift, then change its day or times. New and
+         duplicated shifts are highlighted and scrolled into view. Rows are
+-        sorted by day and start time. To make a shift only for certain people,
+-        enter their names in the last column, separated by commas.
++        sorted by day and start time. The required skill can only be a skill
++        from the Key skills on the Team page. To make a shift only for certain
++        people, enter their names in the last column, separated by commas.
+       </Heading>
+       <EditableTable
+         table='shift_templates'
+-        columns={SHIFT_COLUMNS}
++        columns={buildShiftColumns(teamSkillChoices)}
+         rows={asTableRows<TableRow>(shiftTemplates)}
+         onDataChange={onDataChange}
+         addLabel='Add shift'
+-- 
+2.43.0
+
