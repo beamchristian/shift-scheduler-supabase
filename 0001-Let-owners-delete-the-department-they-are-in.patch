@@ -1,0 +1,175 @@
+From b3996149f3b4fb4f9a3c9fe03724cc905ebc9304 Mon Sep 17 00:00:00 2001
+From: ckbeamcoding <ckbeamcoding@gmail.com>
+Date: Sun, 18 Oct 2026 14:23:59 -0400
+Subject: [PATCH] Let owners delete the department they are in
+
+A danger-zone card at the bottom of Access, for owners only. The owner types the department name to confirm. Deleting removes its employees, shifts, schedule, settings, store hours, access list and audit log, then opens another department the person belongs to. Refused if it is the person's only department.
+
+Co-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>
+
+Claude-Session: https://claude.ai/code/session_01Dbibe2AFHP4aR2mKEVHoEr
+---
+ app/api/departments/remove/route.ts         | 58 +++++++++++++++++++++
+ components/screens/AccessScreen.tsx         |  9 ++++
+ components/screens/DeleteDepartmentCard.tsx | 57 ++++++++++++++++++++
+ 3 files changed, 124 insertions(+)
+ create mode 100644 app/api/departments/remove/route.ts
+ create mode 100644 components/screens/DeleteDepartmentCard.tsx
+
+diff --git a/app/api/departments/remove/route.ts b/app/api/departments/remove/route.ts
+new file mode 100644
+index 0000000..a051d84
+--- /dev/null
++++ b/app/api/departments/remove/route.ts
+@@ -0,0 +1,58 @@
++import { NextResponse } from "next/server";
++import { ACTIVE_DEPARTMENT_COOKIE, resolveCaller } from "../../../../lib/access";
++import { errMsg, transaction } from "../../../../lib/db";
++
++export const dynamic = "force-dynamic";
++
++// Deletes the active department and everything in it. Only its owners may do this.
++// The person must type the department's name to confirm, and must belong to another department,
++// so they are not left with nowhere to go.
++export async function POST(request: Request) {
++  const caller = await resolveCaller(request, { ownerOnly: true });
++  if (caller instanceof Response) return caller;
++
++  const { confirmName } = (await request.json().catch(() => ({}))) as { confirmName?: string };
++  if (String(confirmName ?? "").trim().toLowerCase() !== caller.departmentName.trim().toLowerCase())
++    return NextResponse.json(
++      { error: "Type the department's name exactly to confirm." },
++      { status: 400 },
++    );
++
++  // The other departments this person belongs to. The app opens one of them afterwards.
++  const otherMemberships = caller.memberships.filter(
++    (membership) => membership.departmentId !== caller.departmentId,
++  );
++  if (otherMemberships.length === 0)
++    return NextResponse.json(
++      { error: "Create or join another department before deleting this one." },
++      { status: 400 },
++    );
++
++  try {
++    // The rows that point at the department go first. Its member list and audit log are removed
++    // by the database when the department row is deleted.
++    await transaction(async (transactionQuery) => {
++      const departmentId = caller.departmentId;
++      await transactionQuery("delete from schedule where department_id = $1", [departmentId]);
++      await transactionQuery("delete from shift_templates where department_id = $1", [departmentId]);
++      await transactionQuery("delete from employees where department_id = $1", [departmentId]);
++      await transactionQuery("delete from store_hours where department_id = $1", [departmentId]);
++      await transactionQuery("delete from settings where department_id = $1", [departmentId]);
++      await transactionQuery("delete from departments where id = $1", [departmentId]);
++    });
++
++    // Opens the first other department, and remembers it like the department switch does.
++    const nextDepartment = otherMemberships[0];
++    const response = NextResponse.json({ ok: true, departmentId: nextDepartment.departmentId });
++    response.cookies.set(ACTIVE_DEPARTMENT_COOKIE, String(nextDepartment.departmentId), {
++      httpOnly: true,
++      secure: process.env.NODE_ENV === "production",
++      sameSite: "lax",
++      path: "/",
++      maxAge: 60 * 60 * 24 * 365,
++    });
++    return response;
++  } catch (thrownError) {
++    return NextResponse.json({ error: errMsg(thrownError) }, { status: 500 });
++  }
++}
+diff --git a/components/screens/AccessScreen.tsx b/components/screens/AccessScreen.tsx
+index 776020c..99b06df 100644
+--- a/components/screens/AccessScreen.tsx
++++ b/components/screens/AccessScreen.tsx
+@@ -3,6 +3,7 @@ import { cardClass, fieldClass, primaryButtonClass } from "../../lib/ui/styles";
+ import type { AccessMember } from "../types";
+ import { Callout } from "../ui/Callout";
+ import { CreateDepartmentCard } from "./CreateDepartmentCard";
++import { DeleteDepartmentCard } from "./DeleteDepartmentCard";
+ import { Heading } from "../ui/Heading";
+ 
+ // The Access screen: who can sign in to this department, and their roles.
+@@ -152,6 +153,14 @@ export function AccessScreen({
+           <CreateDepartmentCard />
+         </>
+       )}
++      {canManage && departmentName && (
++        <>
++          <h2 className='mb-2 mt-8 text-sm font-semibold text-rose-700'>
++            Delete this department
++          </h2>
++          <DeleteDepartmentCard departmentName={departmentName} />
++        </>
++      )}
+     </>
+   );
+ }
+diff --git a/components/screens/DeleteDepartmentCard.tsx b/components/screens/DeleteDepartmentCard.tsx
+new file mode 100644
+index 0000000..1b9fd96
+--- /dev/null
++++ b/components/screens/DeleteDepartmentCard.tsx
+@@ -0,0 +1,57 @@
++"use client";
++import { useState } from "react";
++import { callApi } from "../../lib/ui/format";
++import { cardClass, fieldClass } from "../../lib/ui/styles";
++import { Callout } from "../ui/Callout";
++
++// A danger-zone card that deletes the open department. The owner must type its name to confirm.
++// After deleting, the page reloads and opens another department the person belongs to.
++export function DeleteDepartmentCard({ departmentName }: { departmentName: string }) {
++  const [typedName, setTypedName] = useState("");
++  const [isDeleting, setIsDeleting] = useState(false);
++  const [deleteError, setDeleteError] = useState<string | null>(null);
++
++  // The button only works once the typed name matches the department's name, ignoring capitals.
++  const nameMatches = typedName.trim().toLowerCase() === departmentName.trim().toLowerCase();
++
++  // Deletes the department, then reloads so the page opens another one.
++  const deleteDepartment = () => {
++    setIsDeleting(true);
++    setDeleteError(null);
++    callApi<{ ok: boolean }>("/api/departments/remove", { confirmName: typedName })
++      .then(() => window.location.reload())
++      .catch((thrownError: Error) => {
++        setDeleteError(thrownError.message);
++        setIsDeleting(false);
++      });
++  };
++
++  return (
++    <div className={`${cardClass} space-y-3 border-rose-200 p-4`}>
++      <p className='text-sm text-slate-600'>
++        Deleting <span className='font-semibold text-slate-900'>{departmentName}</span> removes its
++        employees, shifts, schedule, settings and access list for good. This can't be undone, so
++        export its data first from Settings if you may need it.
++      </p>
++      <label className='block'>
++        <span className='text-sm font-medium text-slate-700'>
++          Type <span className='font-semibold'>{departmentName}</span> to confirm
++        </span>
++        <input
++          className={`${fieldClass} mt-1`}
++          type='text'
++          value={typedName}
++          onChange={(changeEvent) => setTypedName(changeEvent.target.value)}
++        />
++      </label>
++      <button
++        onClick={deleteDepartment}
++        disabled={!nameMatches || isDeleting}
++        className='inline-flex items-center justify-center rounded-lg bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-40'
++      >
++        {isDeleting ? "Deleting…" : `Delete ${departmentName}`}
++      </button>
++      {deleteError && <Callout tone='warn'>{deleteError}</Callout>}
++    </div>
++  );
++}
+-- 
+2.43.0
+
