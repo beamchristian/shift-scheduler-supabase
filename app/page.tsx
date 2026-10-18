@@ -258,6 +258,7 @@ export default function Page() {
             onGenerate={generateSchedule}
             onSaveForecast={saveForecast}
             onSwapClosers={swapClosersForDay}
+            onShiftSaved={(savedData) => setData(savedData)}
           />
         )}
 

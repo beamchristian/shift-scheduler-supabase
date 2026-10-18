@@ -1,6 +1,7 @@
 "use client";
+import { useState } from "react";
 import { buildReport } from "../../lib/report";
-import type { Snapshot } from "../../lib/types";
+import type { ScheduleRow, Snapshot } from "../../lib/types";
 import { formatMoney, roundTo2 } from "../../lib/ui/format";
 import {
   cardClass,
@@ -14,6 +15,7 @@ import { Heading } from "../ui/Heading";
 import { StatTile } from "../ui/StatTile";
 import { LaborMatrix } from "./schedule/LaborMatrix";
 import { ScheduleGrid } from "./schedule/ScheduleGrid";
+import { ShiftEditor } from "./schedule/ShiftEditor";
 import { buildCoverageNotes } from "./schedule/coverageNotes";
 
 // The Schedule screen: this week's forecast, the budget summary, the staffing check,
@@ -27,6 +29,7 @@ export function ScheduleScreen({
   onGenerate,
   onSaveForecast,
   onSwapClosers,
+  onShiftSaved,
 }: {
   data: Snapshot;
   staffingCheck: StaffingCheck | null;
@@ -36,7 +39,11 @@ export function ScheduleScreen({
   onGenerate: () => void;
   onSaveForecast: (forecastText: string) => void;
   onSwapClosers: (dayNumber: number) => void;
+  onShiftSaved: (reply: Snapshot) => void;
 }) {
+  // The shift being edited, and any warnings left by the last saved change.
+  const [editingShift, setEditingShift] = useState<ScheduleRow | null>(null);
+  const [savedShiftWarnings, setSavedShiftWarnings] = useState<string[]>([]);
   // Figures for the summary tiles, computed from this week's data.
   const report = buildReport(data);
   const rate = report.rate;
@@ -212,6 +219,31 @@ export function ScheduleScreen({
         </div>
       )}
 
+      {savedShiftWarnings.length > 0 && (
+        <div className='mb-3'>
+          <Callout tone='warn'>
+            <div className='mb-1 font-semibold'>Shift saved. Check these:</div>
+            <ul className='list-disc space-y-1 pl-5'>
+              {savedShiftWarnings.map((warningText) => (
+                <li key={warningText}>{warningText}</li>
+              ))}
+            </ul>
+          </Callout>
+        </div>
+      )}
+      {editingShift && (
+        <ShiftEditor
+          shift={editingShift}
+          personName={data.employees.find((person) => person.id === editingShift.employee_id)?.name ?? "Unknown"}
+          dayName={["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][editingShift.day] ?? ""}
+          onClose={() => setEditingShift(null)}
+          onSaved={(reply) => {
+            setSavedShiftWarnings(reply.warnings);
+            setEditingShift(null);
+            onShiftSaved(reply);
+          }}
+        />
+      )}
       <LaborMatrix report={report} />
 
       <h2 className='mb-2 mt-8 text-sm font-semibold text-slate-700'>Schedule</h2>
@@ -226,6 +258,10 @@ export function ScheduleScreen({
           report={report}
           swapMessage={swapMessage}
           onSwapClosers={onSwapClosers}
+          onEditShift={(shift) => {
+            setSavedShiftWarnings([]);
+            setEditingShift(shift);
+          }}
         />
       )}
     </>

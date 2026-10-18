@@ -1,7 +1,7 @@
 "use client";
 import { hasBreak } from "../../../lib/hours";
 import type { Report } from "../../../lib/report";
-import type { Snapshot } from "../../../lib/types";
+import type { ScheduleRow, Snapshot } from "../../../lib/types";
 import {
   DAY_FULL_NAMES,
   DAY_SHORT_LABELS,
@@ -20,11 +20,13 @@ export function ScheduleGrid({
   report,
   swapMessage,
   onSwapClosers,
+  onEditShift,
 }: {
   data: Snapshot;
   report: Report;
   swapMessage: { tone: "ok" | "warn"; text: string } | null;
   onSwapClosers: (dayNumber: number) => void;
+  onEditShift: (shift: ScheduleRow) => void;
 }) {
   const days = report.days;
   const altLabel = report.rule.countPaid ? "shift" : "paid";
@@ -119,15 +121,18 @@ export function ScheduleGrid({
                         {employeeShifts
                           .filter((shift) => shift.day === dayNumber)
                           .map((shift) => (
-                            <div
+                            <button
                               key={shift.id}
-                              className={`whitespace-nowrap rounded-md px-2 py-1 text-xs ring-1 ring-inset ${shiftChipClasses(shift.name)}`}
+                              type='button'
+                              onClick={() => onEditShift(shift)}
+                              title='Click to change this shift'
+                              className={`block whitespace-nowrap rounded-md px-2 py-1 text-left text-xs ring-1 ring-inset hover:brightness-95 ${shiftChipClasses(shift.name)}`}
                             >
                               <div className='font-semibold'>{shift.name}</div>
                               <div>
                                 {formatTime12(shift.start, true)}–{formatTime12(shift.end, true)}
                               </div>
-                            </div>
+                            </button>
                           ))}
                       </div>
                     </td>
@@ -196,7 +201,8 @@ export function ScheduleGrid({
                 {dayShifts.map((shift) => (
                   <li
                     key={shift.id}
-                    className='flex items-center justify-between gap-3 px-4 py-2.5'
+                    onClick={() => onEditShift(shift)}
+                    className='flex cursor-pointer items-center justify-between gap-3 px-4 py-2.5 hover:bg-slate-50'
                   >
                     <div>
                       <div className='text-sm font-medium text-slate-900'>
