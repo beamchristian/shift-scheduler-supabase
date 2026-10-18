@@ -29,12 +29,15 @@ export type ColumnDefinition = {
   key: string;
   // Heading shown above the column.
   label: string;
-  // Input type for the cell, such as "number" or "time".
+  // Input type for the cell, such as "number" or "time". "tags" shows a row of removable chips
+  // for a comma-separated list.
   inputType?: string;
   // True when the cell can be seen but not changed.
   readOnly?: boolean;
   // Placeholder text shown when the cell is empty.
   placeholder?: string;
+  // Values offered as the person types in a "tags" cell.
+  suggestions?: string[];
   // When set, the cell is a dropdown with these choices.
   options?: (string | number)[];
   // Turns a dropdown choice into the text shown to the person.

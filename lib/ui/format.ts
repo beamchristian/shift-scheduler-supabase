@@ -79,3 +79,11 @@ export const shiftChipClasses = (shiftName: string) => {
 
 // Treats a list of data rows as table rows. The data comes from the server, so its shape is known.
 export const asTableRows = <RowType,>(values: unknown) => values as RowType[];
+
+// Splits a comma-separated text value into its items, trimmed, with blanks removed.
+// Used for skills and other lists that are stored as one comma-separated string.
+export const splitCommaList = (listText: string | number | null | undefined) =>
+  String(listText ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);

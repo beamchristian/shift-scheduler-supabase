@@ -1,7 +1,8 @@
 "use client";
-import { DAY_FULL_NAMES } from "../../lib/ui/format";
+import { DAY_FULL_NAMES, splitCommaList } from "../../lib/ui/format";
 import { fieldClass } from "../../lib/ui/styles";
 import type { ColumnDefinition, TableRow } from "../types";
+import { TagsInput } from "../ui/TagsInput";
 
 // One editable cell. Shows a dropdown, a text box or a plain label, depending on the column.
 // Saves the whole row when the value changes.
@@ -22,6 +23,18 @@ export function EditableCell({
           ? DAY_FULL_NAMES[Number(row[column.key])]
           : String(row[column.key] ?? "")}
       </span>
+    );
+  // Comma-separated lists show as removable chips. Each change is saved as a comma-separated text value.
+  if (column.inputType === "tags")
+    return (
+      <TagsInput
+        values={splitCommaList(row[column.key])}
+        suggestions={column.suggestions}
+        placeholder={column.placeholder}
+        onChange={(newValues) =>
+          onSaveRow({ ...row, [column.key]: newValues.join(", ") })
+        }
+      />
     );
   // Columns with a fixed list of choices show a dropdown.
   if (column.options)

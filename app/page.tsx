@@ -267,6 +267,7 @@ export default function Page() {
         {currentTab === "Team" && (
           <TeamScreen
             employees={data.employees}
+            shiftTemplates={data.shift_templates}
             onDataChange={setData}
             highlightedId={highlightedIdFor("employees")}
             onRowAdded={(newRowId) => markRowAsNew("employees", newRowId)}
