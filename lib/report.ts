@@ -2,6 +2,7 @@ import { avgRate, dailySales, dayBudget, requiredHours } from "./matrix";
 import { breakRule, clockHours, paidHours, type BreakRule } from "./hours";
 import type { Employee, ScheduleRow, Snapshot } from "./types";
 
+// One row of the labor matrix, for one day.
 // "req" and "sched" are the hours the app's logic uses (scheduled shift hours by default).
 // "reqAlt" and "schedAlt" are the other figure, shown for reference (paid hours, with the unpaid lunch deducted).
 export interface DayRow {
@@ -16,6 +17,8 @@ export interface DayRow {
   schedCost: number;
   schedCostAlt: number;
 }
+
+// One person's line in the report: their shifts and hours.
 export interface EmpRow {
   emp: Employee;
   shifts: ScheduleRow[];
@@ -23,13 +26,16 @@ export interface EmpRow {
   alt: number;
   closes: number;
 }
+
+// The full report used by the screen and the PDF.
 export interface Report {
   rule: BreakRule;
   rate: number;
   days: DayRow[];
   heads: Record<number, number>;
   employees: EmpRow[];
-  showAlt: boolean; // false when there is no unpaid lunch, so the two figures would be identical
+  // False when there is no unpaid lunch, so the two figures would be identical.
+  showAlt: boolean;
   totals: {
     sales: number;
     target: number;
@@ -45,79 +51,91 @@ export interface Report {
   };
 }
 
-// The labor matrix and per-employee hours. Used by the screen and the PDF.
-export function buildReport(snap: Snapshot): Report {
-  const rule = breakRule(snap.settings);
-  const rate = avgRate(snap.settings);
-  const sales = dailySales(snap.store_hours, snap.settings);
-  const need = requiredHours(snap.shift_templates, rule);
-  const closeAt: Record<number, string> = Object.fromEntries(
-    snap.store_hours.map((h) => [h.day, h.close]),
+// Builds the labor matrix and each person's hours from one department's data. Used by the screen and the PDF.
+export function buildReport(snapshot: Snapshot): Report {
+  const breakSettings = breakRule(snapshot.settings);
+  const hourlyRate = avgRate(snapshot.settings);
+  const dailySalesByDay = dailySales(snapshot.store_hours, snapshot.settings);
+  const requiredHoursTotals = requiredHours(snapshot.shift_templates, breakSettings);
+  // Closing time for each day, keyed by day number.
+  const closingTimeByDay: Record<number, string> = Object.fromEntries(
+    snapshot.store_hours.map((storeHour) => [storeHour.day, storeHour.close]),
   );
-  const pick = (shift: number, paid: number) =>
-    rule.countPaid ? { main: paid, alt: shift } : { main: shift, alt: paid };
+  // Picks the main figure and the reference figure. The main one depends on the "count paid hours" setting.
+  const pickMainAndReference = (shiftFigure: number, paidFigure: number) =>
+    breakSettings.countPaid
+      ? { main: paidFigure, alt: shiftFigure }
+      : { main: shiftFigure, alt: paidFigure };
 
-  const days: DayRow[] = snap.store_hours.map((h) => {
-    const b = dayBudget(sales[h.day], snap.settings, rate);
-    const rows = snap.schedule.filter((s) => s.day === h.day);
-    const r = pick(need.shift[h.day] || 0, need.paid[h.day] || 0);
-    const sc = pick(
-      rows.reduce((a, s) => a + clockHours(s.start, s.end), 0),
-      rows.reduce((a, s) => a + paidHours(s.start, s.end, rule), 0),
+  // One row per day of the labor matrix.
+  const days: DayRow[] = snapshot.store_hours.map((storeHour) => {
+    const dayBudgetFigures = dayBudget(dailySalesByDay[storeHour.day], snapshot.settings, hourlyRate);
+    const scheduledRowsForDay = snapshot.schedule.filter((scheduleRow) => scheduleRow.day === storeHour.day);
+    const requiredFigures = pickMainAndReference(
+      requiredHoursTotals.shift[storeHour.day] || 0,
+      requiredHoursTotals.paid[storeHour.day] || 0,
+    );
+    const scheduledFigures = pickMainAndReference(
+      scheduledRowsForDay.reduce((runningTotal, row) => runningTotal + clockHours(row.start, row.end), 0),
+      scheduledRowsForDay.reduce((runningTotal, row) => runningTotal + paidHours(row.start, row.end, breakSettings), 0),
     );
     return {
-      day: h.day,
-      sales: sales[h.day],
-      target: b.target,
-      allowed: b.hours,
-      req: r.main,
-      reqAlt: r.alt,
-      sched: sc.main,
-      schedAlt: sc.alt,
-      schedCost: sc.main * rate,
-      schedCostAlt: sc.alt * rate,
+      day: storeHour.day,
+      sales: dailySalesByDay[storeHour.day],
+      target: dayBudgetFigures.target,
+      allowed: dayBudgetFigures.hours,
+      req: requiredFigures.main,
+      reqAlt: requiredFigures.alt,
+      sched: scheduledFigures.main,
+      schedAlt: scheduledFigures.alt,
+      schedCost: scheduledFigures.main * hourlyRate,
+      schedCostAlt: scheduledFigures.alt * hourlyRate,
     };
   });
 
-  const employees: EmpRow[] = snap.employees.map((emp) => {
-    const shifts = snap.schedule
-      .filter((s) => s.employee_id === emp.id)
-      .sort((a, b) => a.day - b.day);
-    const e = pick(
-      shifts.reduce((a, s) => a + clockHours(s.start, s.end), 0),
-      shifts.reduce((a, s) => a + paidHours(s.start, s.end, rule), 0),
+  // One line per person: their shifts (in day order), hours, and closing shifts.
+  const employees: EmpRow[] = snapshot.employees.map((employee) => {
+    const shiftsForEmployee = snapshot.schedule
+      .filter((scheduleRow) => scheduleRow.employee_id === employee.id)
+      .sort((first, second) => first.day - second.day);
+    const personFigures = pickMainAndReference(
+      shiftsForEmployee.reduce((runningTotal, row) => runningTotal + clockHours(row.start, row.end), 0),
+      shiftsForEmployee.reduce((runningTotal, row) => runningTotal + paidHours(row.start, row.end, breakSettings), 0),
     );
     return {
-      emp,
-      shifts,
-      hours: e.main,
-      alt: e.alt,
-      closes: shifts.filter((s) => !!closeAt[s.day] && s.end >= closeAt[s.day])
-        .length,
+      emp: employee,
+      shifts: shiftsForEmployee,
+      hours: personFigures.main,
+      alt: personFigures.alt,
+      closes: shiftsForEmployee.filter(
+        (row) => !!closingTimeByDay[row.day] && row.end >= closingTimeByDay[row.day],
+      ).length,
     };
   });
 
-  const sum = (f: (d: DayRow) => number) => days.reduce((a, d) => a + f(d), 0);
-  const req = sum((d) => d.req);
+  // Totals across the week. Cost is hours multiplied by the average hourly rate.
+  const sumOverDays = (pickValue: (dayRow: DayRow) => number) =>
+    days.reduce((runningTotal, dayRow) => runningTotal + pickValue(dayRow), 0);
+  const requiredHoursTotal = sumOverDays((dayRow) => dayRow.req);
   return {
-    rule,
-    rate,
+    rule: breakSettings,
+    rate: hourlyRate,
     days,
     employees,
-    heads: need.heads,
-    showAlt: rule.minutes > 0 && rule.unpaid,
+    heads: requiredHoursTotals.heads,
+    showAlt: breakSettings.minutes > 0 && breakSettings.unpaid,
     totals: {
-      sales: sum((d) => d.sales),
-      target: sum((d) => d.target),
-      allowed: sum((d) => d.allowed),
-      req,
-      reqAlt: sum((d) => d.reqAlt),
-      reqCost: req * rate,
-      reqCostAlt: sum((d) => d.reqAlt) * rate,
-      sched: sum((d) => d.sched),
-      schedAlt: sum((d) => d.schedAlt),
-      schedCost: sum((d) => d.schedCost),
-      schedCostAlt: sum((d) => d.schedCostAlt),
+      sales: sumOverDays((dayRow) => dayRow.sales),
+      target: sumOverDays((dayRow) => dayRow.target),
+      allowed: sumOverDays((dayRow) => dayRow.allowed),
+      req: requiredHoursTotal,
+      reqAlt: sumOverDays((dayRow) => dayRow.reqAlt),
+      reqCost: requiredHoursTotal * hourlyRate,
+      reqCostAlt: sumOverDays((dayRow) => dayRow.reqAlt) * hourlyRate,
+      sched: sumOverDays((dayRow) => dayRow.sched),
+      schedAlt: sumOverDays((dayRow) => dayRow.schedAlt),
+      schedCost: sumOverDays((dayRow) => dayRow.schedCost),
+      schedCostAlt: sumOverDays((dayRow) => dayRow.schedCostAlt),
     },
   };
 }
