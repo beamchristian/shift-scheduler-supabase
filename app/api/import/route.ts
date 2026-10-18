@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveCaller } from "../../../lib/access";
+import { recordAuditEntry } from "../../../lib/audit";
 import { snapshot } from "../../../lib/db";
 import { importAll } from "../../../lib/backup";
 
@@ -20,5 +21,11 @@ export async function POST(request: Request) {
   const importResult = await importAll(uploadedFileContent, caller.departmentId);
   if (!importResult.ok)
     return NextResponse.json({ error: importResult.error }, { status: 400 });
+  await recordAuditEntry(
+    caller.departmentId,
+    caller.email,
+    "Imported backup",
+    "Replaced employees, shifts, settings and the schedule",
+  );
   return NextResponse.json(await snapshot(caller.departmentId));
 }

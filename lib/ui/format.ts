@@ -87,3 +87,12 @@ export const splitCommaList = (listText: string | number | null | undefined) =>
     .split(",")
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
+
+// Formats a date-time string for display, such as "Oct 18, 2:05 PM", in the viewer's own time zone.
+export const formatTimestamp = (timestampText: string) =>
+  new Date(timestampText).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });

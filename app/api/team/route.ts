@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveCaller } from "../../../lib/access";
+import { recordAuditEntry } from "../../../lib/audit";
 import { errMsg, runQuery } from "../../../lib/db";
 
 export const dynamic = "force-dynamic";
@@ -35,14 +36,6 @@ async function findMember(memberId: number, departmentId: number): Promise<Membe
     [memberId, departmentId],
   );
   return memberRow;
-}
-
-// Writes one line to the audit log, so there is a record of who changed access and when.
-async function recordAuditEntry(departmentId: number, actorEmail: string, action: string, detail: string) {
-  await runQuery(
-    "insert into audit_log (department_id, email, action, detail) values ($1, $2, $3, $4)",
-    [departmentId, actorEmail, action, detail],
-  );
 }
 
 // Returns the access list for the active department, and whether the caller may change it.

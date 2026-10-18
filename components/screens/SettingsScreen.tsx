@@ -6,6 +6,7 @@ import { EditableTable } from "../EditableTable/EditableTable";
 import type { ColumnDefinition, TableRow } from "../types";
 import { Callout } from "../ui/Callout";
 import { Heading } from "../ui/Heading";
+import { RecentChanges } from "./RecentChanges";
 
 // Settings for payroll and the shift start window.
 const PAYROLL_COLUMNS: ColumnDefinition[] = [
@@ -150,6 +151,11 @@ export function SettingsScreen({
           <Callout tone={backupMessage.tone}>{backupMessage.text}</Callout>
         )}
       </div>
+
+      <h2 className='mb-2 mt-8 text-sm font-semibold text-slate-700'>
+        Recent changes
+      </h2>
+      <RecentChanges />
     </>
   );
 }
