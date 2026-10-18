@@ -9,12 +9,16 @@ import { hasBreak, t12 } from "./hours";
 import { buildReport } from "./report";
 import type { Snapshot } from "./types";
 
-// US Letter, landscape. Coordinates below are measured from the top of the page.
-const W = 792;
-const H = 612;
-const M = 28;
-const BOTTOM = 40;
-const C = {
+// US Letter, landscape. All positions below are measured from the top of the page, in points.
+const PAGE_WIDTH = 792;
+const PAGE_HEIGHT = 612;
+// Space left around the edge of the page.
+const PAGE_MARGIN = 28;
+// Space kept clear at the bottom of each page, above the footer.
+const BOTTOM_RESERVED_SPACE = 40;
+
+// Colors used in the PDF.
+const COLORS = {
   ink: rgb(0.06, 0.09, 0.16),
   mute: rgb(0.4, 0.45, 0.53),
   line: rgb(0.83, 0.86, 0.9),
@@ -24,135 +28,177 @@ const C = {
   warn: rgb(0.71, 0.33, 0.04),
   ok: rgb(0.02, 0.45, 0.32),
 };
-const FILL = {
+// Background colors for shift boxes, by kind of shift.
+const SHIFT_FILLS = {
   open: rgb(0.996, 0.953, 0.78),
   close: rgb(0.878, 0.906, 1),
   other: rgb(0.82, 0.98, 0.9),
 };
-const DAY = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const DAYS = [1, 2, 3, 4, 5, 6];
+// Short day names for the columns. Index 1 is Monday.
+const DAY_LABELS = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+// The days of the week that the schedule covers (Monday to Saturday).
+const WORK_DAYS = [1, 2, 3, 4, 5, 6];
 
 // The built-in PDF fonts only cover Latin text, so anything else becomes a question mark.
-const clean = (s: string) =>
-  s.replace(
-    /[^\x20-\x7E\u00A0-\u00FF\u2013\u2014\u2018\u2019\u201C\u201D\u2022\u2026]/g,
+const replaceUnsupportedCharacters = (text: string) =>
+  text.replace(
+    /[^\x20-\x7E -ÿ–—‘’“”•…]/g,
     "?",
   );
-const money = (x: number) => "$" + Math.round(x).toLocaleString("en-US");
-const r2 = (x: number) => String(+x.toFixed(2));
-const shiftFill = (name: string) => {
-  const n = name.toLowerCase();
-  return n.includes("open")
-    ? FILL.open
-    : n.includes("clos")
-      ? FILL.close
-      : FILL.other;
+
+// Formats a dollar amount with no cents, for example "$1,234".
+const formatMoney = (amount: number) => "$" + Math.round(amount).toLocaleString("en-US");
+// Rounds to two decimals for hours, without trailing zeros, for example "7.5" or "8".
+const formatHours = (hours: number) => String(+hours.toFixed(2));
+// Picks the box color for a shift by its name: opening, closing, or anything else.
+const shiftFillColor = (shiftName: string) => {
+  const lowerCaseName = shiftName.toLowerCase();
+  return lowerCaseName.includes("open")
+    ? SHIFT_FILLS.open
+    : lowerCaseName.includes("clos")
+      ? SHIFT_FILLS.close
+      : SHIFT_FILLS.other;
 };
 
-export async function buildPdf(snap: Snapshot): Promise<Uint8Array> {
-  const rep = buildReport(snap);
-  const { rule, rate, totals } = rep;
-  const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const title = clean(
-    snap.settings.schedule_title?.trim() || "Weekly Schedule",
+// Builds the printable schedule for one department: the labor matrix, the schedule grid, and footers.
+// Returns the PDF file as bytes.
+export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
+  const report = buildReport(snapshot);
+  const { rule: breakRuleInUse, rate: hourlyRate, totals } = report;
+  const pdfDocument = await PDFDocument.create();
+  const regularFont = await pdfDocument.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDocument.embedFont(StandardFonts.HelveticaBold);
+  const scheduleTitle = replaceUnsupportedCharacters(
+    snapshot.settings.schedule_title?.trim() || "Weekly Schedule",
   );
 
-  let page: PDFPage = doc.addPage([W, H]);
-  let y = M; // current distance from the top
+  let currentPage: PDFPage = pdfDocument.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+  // Current height from the top of the page.
+  let currentTop = PAGE_MARGIN;
 
-  const fit = (s: string, f: PDFFont, size: number, w: number) => {
-    let t = clean(s);
-    if (f.widthOfTextAtSize(t, size) <= w) return t;
-    while (t.length > 1 && f.widthOfTextAtSize(t + "...", size) > w)
-      t = t.slice(0, -1);
-    return t + "...";
+  // Shortens text with "..." so it fits inside the given width.
+  const fitTextToWidth = (text: string, font: PDFFont, fontSize: number, maxWidth: number) => {
+    let shortenedText = replaceUnsupportedCharacters(text);
+    if (font.widthOfTextAtSize(shortenedText, fontSize) <= maxWidth) return shortenedText;
+    while (shortenedText.length > 1 && font.widthOfTextAtSize(shortenedText + "...", fontSize) > maxWidth)
+      shortenedText = shortenedText.slice(0, -1);
+    return shortenedText + "...";
   };
-  // Text centered vertically on `mid` (distance from top), aligned inside the box [x, x + w]
-  const put = (
-    s: string,
-    x: number,
-    w: number,
-    mid: number,
-    size: number,
-    f: PDFFont,
-    color = C.ink,
-    align: "left" | "center" | "right" = "left",
+  // Draws text vertically centered on `middleFromTop`, aligned inside the box from `boxLeft` to `boxLeft + boxWidth`.
+  const drawText = (
+    text: string,
+    boxLeft: number,
+    boxWidth: number,
+    middleFromTop: number,
+    fontSize: number,
+    font: PDFFont,
+    color = COLORS.ink,
+    alignment: "left" | "center" | "right" = "left",
   ) => {
-    const t = fit(s, f, size, w);
-    const tw = f.widthOfTextAtSize(t, size);
-    const tx =
-      align === "left" ? x : align === "center" ? x + (w - tw) / 2 : x + w - tw;
-    page.drawText(t, { x: tx, y: H - mid - size * 0.34, size, font: f, color });
+    const fittedText = fitTextToWidth(text, font, fontSize, boxWidth);
+    const textWidth = font.widthOfTextAtSize(fittedText, fontSize);
+    const textLeft =
+      alignment === "left"
+        ? boxLeft
+        : alignment === "center"
+          ? boxLeft + (boxWidth - textWidth) / 2
+          : boxLeft + boxWidth - textWidth;
+    currentPage.drawText(fittedText, {
+      x: textLeft,
+      y: PAGE_HEIGHT - middleFromTop - fontSize * 0.34,
+      size: fontSize,
+      font,
+      color,
+    });
   };
-  const rect = (
-    x: number,
+  // Draws a filled rectangle. `top` is measured from the top of the page.
+  const drawFilledRectangle = (
+    left: number,
     top: number,
-    w: number,
-    h: number,
+    width: number,
+    height: number,
     color: ReturnType<typeof rgb>,
-  ) => page.drawRectangle({ x, y: H - top - h, width: w, height: h, color });
-  const hline = (top: number, x1 = M, x2 = W - M) =>
-    page.drawLine({
-      start: { x: x1, y: H - top },
-      end: { x: x2, y: H - top },
+  ) =>
+    currentPage.drawRectangle({
+      x: left,
+      y: PAGE_HEIGHT - top - height,
+      width,
+      height,
+      color,
+    });
+  // Draws a thin horizontal line across the page at a height from the top.
+  const drawHorizontalLine = (top: number, fromX = PAGE_MARGIN, toX = PAGE_WIDTH - PAGE_MARGIN) =>
+    currentPage.drawLine({
+      start: { x: fromX, y: PAGE_HEIGHT - top },
+      end: { x: toX, y: PAGE_HEIGHT - top },
       thickness: 0.5,
-      color: C.line,
+      color: COLORS.line,
     });
 
   // ---- Title block
-  put(title, M, 520, y + 11, 18, bold);
-  put(
+  drawText(scheduleTitle, PAGE_MARGIN, 520, currentTop + 11, 18, boldFont);
+  drawText(
     "Generated " +
       new Date().toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
         year: "numeric",
       }),
-    W - M - 200,
+    PAGE_WIDTH - PAGE_MARGIN - 200,
     200,
-    y + 9,
+    currentTop + 9,
     8,
-    font,
-    C.mute,
+    regularFont,
+    COLORS.mute,
     "right",
   );
-  y += 26;
-  const weekly = Number(snap.settings.weekly_sales);
-  const pct = Number(snap.settings.payroll_pct);
-  const sub = [
-    `Forecast sales ${money(weekly)}`,
-    `Payroll target ${pct}% (${money(totals.target)})`,
-    `Average rate $${rate.toFixed(2)}/hr`,
-    rule.minutes > 0
-      ? `Lunch ${rule.minutes} min ${rule.unpaid ? "unpaid" : "paid"} on shifts over ${r2(rule.after)} hrs`
+  currentTop += 26;
+  const weeklySalesForecast = Number(snapshot.settings.weekly_sales);
+  const payrollPercent = Number(snapshot.settings.payroll_pct);
+  const subtitleParts = [
+    `Forecast sales ${formatMoney(weeklySalesForecast)}`,
+    `Payroll target ${payrollPercent}% (${formatMoney(totals.target)})`,
+    `Average rate $${hourlyRate.toFixed(2)}/hr`,
+    breakRuleInUse.minutes > 0
+      ? `Lunch ${breakRuleInUse.minutes} min ${breakRuleInUse.unpaid ? "unpaid" : "paid"} on shifts over ${formatHours(breakRuleInUse.after)} hrs`
       : "No lunch breaks",
   ].join("   |   ");
-  put(sub, M, W - 2 * M, y + 5, 8.5, font, C.mute);
-  y += 15;
-  const pctOf = (x: number) =>
-    totals.sales ? ((x / totals.sales) * 100).toFixed(1) + "%" : "-";
-  const diff = totals.target - totals.schedCost;
-  const summary = [
-    `Scheduled payroll ${money(totals.schedCost)} (${pctOf(totals.schedCost)})`,
-    rep.showAlt
-      ? `${rule.countPaid ? "Shift hours" : "Paid, minus lunch"} ${money(totals.schedCostAlt)} (${pctOf(totals.schedCostAlt)})`
+  drawText(subtitleParts, PAGE_MARGIN, PAGE_WIDTH - 2 * PAGE_MARGIN, currentTop + 5, 8.5, regularFont, COLORS.mute);
+  currentTop += 15;
+  // Payroll as a share of sales, for display.
+  const percentOfSales = (dollars: number) =>
+    totals.sales ? ((dollars / totals.sales) * 100).toFixed(1) + "%" : "-";
+  // Positive when scheduled payroll is under target.
+  const dollarsUnderTarget = totals.target - totals.schedCost;
+  const summaryParts = [
+    `Scheduled payroll ${formatMoney(totals.schedCost)} (${percentOfSales(totals.schedCost)})`,
+    report.showAlt
+      ? `${breakRuleInUse.countPaid ? "Shift hours" : "Paid, minus lunch"} ${formatMoney(totals.schedCostAlt)} (${percentOfSales(totals.schedCostAlt)})`
       : "",
-    `${diff >= 0 ? money(diff) + " under" : money(-diff) + " over"} target`,
+    `${dollarsUnderTarget >= 0 ? formatMoney(dollarsUnderTarget) + " under" : formatMoney(-dollarsUnderTarget) + " over"} target`,
   ]
     .filter(Boolean)
     .join("   |   ");
-  put(summary, M, W - 2 * M, y + 5, 10, bold, diff >= 0 ? C.ok : C.warn);
-  y += 17;
+  drawText(
+    summaryParts,
+    PAGE_MARGIN,
+    PAGE_WIDTH - 2 * PAGE_MARGIN,
+    currentTop + 5,
+    10,
+    boldFont,
+    dollarsUnderTarget >= 0 ? COLORS.ok : COLORS.warn,
+  );
+  currentTop += 17;
 
   // ---- Labor matrix
-  const LW = 176,
-    DW = 78,
-    TW = 92;
-  const bad = (a: number, b: number) => a > b + 0.005;
-  const altName = rule.countPaid ? "shift length" : "paid, minus lunch";
-  type MRow = {
+  const LABEL_COLUMN_WIDTH = 176;
+  const DAY_COLUMN_WIDTH = 78;
+  const TOTAL_COLUMN_WIDTH = 92;
+  // True when a figure is over its allowance (with a small rounding margin).
+  const isOverAllowance = (actual: number, allowed: number) => actual > allowed + 0.005;
+  const referenceRowLabel = breakRuleInUse.countPaid ? "shift length" : "paid, minus lunch";
+  // One line of the labor matrix. `sub` lines are the smaller reference figures.
+  type MatrixRow = {
     label: string;
     cells: string[];
     total: string;
@@ -161,317 +207,331 @@ export async function buildPdf(snap: Snapshot): Promise<Uint8Array> {
     flag?: boolean[];
     totalFlag?: boolean;
   };
-  const rows: MRow[] = (
+  const matrixRows: MatrixRow[] = (
     [
       {
         label: "Projected sales",
-        cells: rep.days.map((d) => money(d.sales)),
-        total: money(totals.sales),
+        cells: report.days.map((dayRow) => formatMoney(dayRow.sales)),
+        total: formatMoney(totals.sales),
       },
       {
         label: "Target payroll",
-        cells: rep.days.map((d) => money(d.target)),
-        total: money(totals.target),
+        cells: report.days.map((dayRow) => formatMoney(dayRow.target)),
+        total: formatMoney(totals.target),
       },
       {
         label: "Allowed hours",
-        cells: rep.days.map((d) => r2(d.allowed)),
-        total: r2(totals.allowed),
+        cells: report.days.map((dayRow) => formatHours(dayRow.allowed)),
+        total: formatHours(totals.allowed),
         strong: true,
       },
       {
         label: "Hours to fully staff",
-        cells: rep.days.map((d) => r2(d.req)),
-        total: r2(totals.req),
+        cells: report.days.map((dayRow) => formatHours(dayRow.req)),
+        total: formatHours(totals.req),
       },
       {
-        label: altName,
+        label: referenceRowLabel,
         sub: true,
-        cells: rep.days.map((d) => r2(d.reqAlt)),
-        total: r2(totals.reqAlt),
+        cells: report.days.map((dayRow) => formatHours(dayRow.reqAlt)),
+        total: formatHours(totals.reqAlt),
       },
       {
         label: "Cost to fully staff",
-        cells: rep.days.map((d) => money(d.req * rate)),
-        total: money(totals.reqCost),
+        cells: report.days.map((dayRow) => formatMoney(dayRow.req * hourlyRate)),
+        total: formatMoney(totals.reqCost),
       },
       {
-        label: altName,
+        label: referenceRowLabel,
         sub: true,
-        cells: rep.days.map((d) => money(d.reqAlt * rate)),
-        total: money(totals.reqCostAlt),
+        cells: report.days.map((dayRow) => formatMoney(dayRow.reqAlt * hourlyRate)),
+        total: formatMoney(totals.reqCostAlt),
       },
       {
         label: "Hours scheduled",
-        cells: rep.days.map((d) => r2(d.sched)),
-        total: r2(totals.sched),
+        cells: report.days.map((dayRow) => formatHours(dayRow.sched)),
+        total: formatHours(totals.sched),
         strong: true,
       },
       {
-        label: altName,
+        label: referenceRowLabel,
         sub: true,
-        cells: rep.days.map((d) => r2(d.schedAlt)),
-        total: r2(totals.schedAlt),
+        cells: report.days.map((dayRow) => formatHours(dayRow.schedAlt)),
+        total: formatHours(totals.schedAlt),
       },
       {
         label: "Scheduled payroll",
-        cells: rep.days.map((d) => money(d.schedCost)),
-        total: money(totals.schedCost),
+        cells: report.days.map((dayRow) => formatMoney(dayRow.schedCost)),
+        total: formatMoney(totals.schedCost),
       },
       {
-        label: altName,
+        label: referenceRowLabel,
         sub: true,
-        cells: rep.days.map((d) => money(d.schedCostAlt)),
-        total: money(totals.schedCostAlt),
+        cells: report.days.map((dayRow) => formatMoney(dayRow.schedCostAlt)),
+        total: formatMoney(totals.schedCostAlt),
       },
       {
         label: "+/- hours",
-        cells: rep.days.map((d) => r2(d.sched - d.allowed)),
-        total: r2(totals.sched - totals.allowed),
+        cells: report.days.map((dayRow) => formatHours(dayRow.sched - dayRow.allowed)),
+        total: formatHours(totals.sched - totals.allowed),
         strong: true,
-        flag: rep.days.map((d) => bad(d.sched, d.allowed)),
-        totalFlag: bad(totals.sched, totals.allowed),
+        flag: report.days.map((dayRow) => isOverAllowance(dayRow.sched, dayRow.allowed)),
+        totalFlag: isOverAllowance(totals.sched, totals.allowed),
       },
-    ] as MRow[]
-  ).filter((r) => !r.sub || rep.showAlt);
-  const RH = 15.5,
-    SH = 12.5,
-    HH = 17;
-  rect(M, y, W - 2 * M, HH, C.head);
-  put("Labor matrix", M + 6, LW - 8, y + HH / 2, 8.5, bold, C.white);
-  DAYS.forEach((d, i) =>
-    put(
-      DAY[d],
-      M + LW + i * DW,
-      DW - 8,
-      y + HH / 2,
+    ] as MatrixRow[]
+  ).filter((matrixRow) => !matrixRow.sub || report.showAlt);
+  const MAIN_ROW_HEIGHT = 15.5;
+  const SUB_ROW_HEIGHT = 12.5;
+  const HEADER_ROW_HEIGHT = 17;
+  drawFilledRectangle(PAGE_MARGIN, currentTop, PAGE_WIDTH - 2 * PAGE_MARGIN, HEADER_ROW_HEIGHT, COLORS.head);
+  drawText("Labor matrix", PAGE_MARGIN + 6, LABEL_COLUMN_WIDTH - 8, currentTop + HEADER_ROW_HEIGHT / 2, 8.5, boldFont, COLORS.white);
+  WORK_DAYS.forEach((dayNumber, columnIndex) =>
+    drawText(
+      DAY_LABELS[dayNumber],
+      PAGE_MARGIN + LABEL_COLUMN_WIDTH + columnIndex * DAY_COLUMN_WIDTH,
+      DAY_COLUMN_WIDTH - 8,
+      currentTop + HEADER_ROW_HEIGHT / 2,
       8.5,
-      bold,
-      C.white,
+      boldFont,
+      COLORS.white,
       "right",
     ),
   );
-  put(
+  drawText(
     "Total",
-    M + LW + 6 * DW,
-    TW - 8,
-    y + HH / 2,
+    PAGE_MARGIN + LABEL_COLUMN_WIDTH + 6 * DAY_COLUMN_WIDTH,
+    TOTAL_COLUMN_WIDTH - 8,
+    currentTop + HEADER_ROW_HEIGHT / 2,
     8.5,
-    bold,
-    C.white,
+    boldFont,
+    COLORS.white,
     "right",
   );
-  y += HH;
-  rows.forEach((r, k) => {
-    const h = r.sub ? SH : RH;
-    const size = r.sub ? 7.5 : 8.5;
-    const col = r.sub ? C.mute : C.ink;
-    if (k % 2 === 1) rect(M, y, W - 2 * M, h, C.band);
-    const f = r.strong ? bold : font;
-    put(
-      r.label,
-      M + (r.sub ? 16 : 6),
-      LW - (r.sub ? 18 : 8),
-      y + h / 2,
-      size,
-      f,
-      col,
+  currentTop += HEADER_ROW_HEIGHT;
+  matrixRows.forEach((matrixRow, rowIndex) => {
+    const rowHeight = matrixRow.sub ? SUB_ROW_HEIGHT : MAIN_ROW_HEIGHT;
+    const fontSize = matrixRow.sub ? 7.5 : 8.5;
+    const textColor = matrixRow.sub ? COLORS.mute : COLORS.ink;
+    // Every other row gets a light background, to make the rows easier to follow.
+    if (rowIndex % 2 === 1) drawFilledRectangle(PAGE_MARGIN, currentTop, PAGE_WIDTH - 2 * PAGE_MARGIN, rowHeight, COLORS.band);
+    const rowFont = matrixRow.strong ? boldFont : regularFont;
+    drawText(
+      matrixRow.label,
+      PAGE_MARGIN + (matrixRow.sub ? 16 : 6),
+      LABEL_COLUMN_WIDTH - (matrixRow.sub ? 18 : 8),
+      currentTop + rowHeight / 2,
+      fontSize,
+      rowFont,
+      textColor,
     );
-    r.cells.forEach((c, i) =>
-      put(
-        c,
-        M + LW + i * DW,
-        DW - 8,
-        y + h / 2,
-        size,
-        f,
-        r.flag?.[i] ? C.warn : col,
+    matrixRow.cells.forEach((cellText, columnIndex) =>
+      drawText(
+        cellText,
+        PAGE_MARGIN + LABEL_COLUMN_WIDTH + columnIndex * DAY_COLUMN_WIDTH,
+        DAY_COLUMN_WIDTH - 8,
+        currentTop + rowHeight / 2,
+        fontSize,
+        rowFont,
+        matrixRow.flag?.[columnIndex] ? COLORS.warn : textColor,
         "right",
       ),
     );
-    put(
-      r.total,
-      M + LW + 6 * DW,
-      TW - 8,
-      y + h / 2,
-      size,
-      r.sub ? font : bold,
-      r.totalFlag ? C.warn : col,
+    drawText(
+      matrixRow.total,
+      PAGE_MARGIN + LABEL_COLUMN_WIDTH + 6 * DAY_COLUMN_WIDTH,
+      TOTAL_COLUMN_WIDTH - 8,
+      currentTop + rowHeight / 2,
+      fontSize,
+      matrixRow.sub ? regularFont : boldFont,
+      matrixRow.totalFlag ? COLORS.warn : textColor,
       "right",
     );
-    y += h;
-    hline(y);
+    currentTop += rowHeight;
+    drawHorizontalLine(currentTop);
   });
-  y += 14;
+  currentTop += 14;
 
   // ---- Schedule grid
-  const EW = 108,
-    SW = 82,
-    PW = 42,
-    BW = 52,
-    CW = 44;
-  const header = (label: string) => {
-    put(label, M, 300, y + 6, 11, bold);
-    y += 15;
-    rect(M, y, W - 2 * M, 18, C.head);
-    put("Employee", M + 6, EW - 8, y + 9, 8.5, bold, C.white);
-    DAYS.forEach((d, i) =>
-      put(DAY[d], M + EW + i * SW, SW, y + 9, 8.5, bold, C.white, "center"),
+  const EMPLOYEE_COLUMN_WIDTH = 108;
+  const SHIFT_COLUMN_WIDTH = 82;
+  const PAID_COLUMN_WIDTH = 42;
+  const SECOND_HOURS_COLUMN_WIDTH = 52;
+  const CLOSES_COLUMN_WIDTH = 44;
+  // Draws the grid's title and column headings. Called at the top of every grid page.
+  const drawGridHeader = (headerTitle: string) => {
+    drawText(headerTitle, PAGE_MARGIN, 300, currentTop + 6, 11, boldFont);
+    currentTop += 15;
+    drawFilledRectangle(PAGE_MARGIN, currentTop, PAGE_WIDTH - 2 * PAGE_MARGIN, 18, COLORS.head);
+    drawText("Employee", PAGE_MARGIN + 6, EMPLOYEE_COLUMN_WIDTH - 8, currentTop + 9, 8.5, boldFont, COLORS.white);
+    WORK_DAYS.forEach((dayNumber, columnIndex) =>
+      drawText(
+        DAY_LABELS[dayNumber],
+        PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + columnIndex * SHIFT_COLUMN_WIDTH,
+        SHIFT_COLUMN_WIDTH,
+        currentTop + 9,
+        8.5,
+        boldFont,
+        COLORS.white,
+        "center",
+      ),
     );
-    put(
-      rule.countPaid ? "Paid hrs" : "Hours",
-      M + EW + 6 * SW,
-      PW,
-      y + 9,
+    drawText(
+      breakRuleInUse.countPaid ? "Paid hrs" : "Hours",
+      PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + 6 * SHIFT_COLUMN_WIDTH,
+      PAID_COLUMN_WIDTH,
+      currentTop + 9,
       8,
-      bold,
-      C.white,
+      boldFont,
+      COLORS.white,
       "center",
     );
-    if (rep.showAlt)
-      put(
-        rule.countPaid ? "Shift hrs" : "Paid hrs",
-        M + EW + 6 * SW + PW,
-        BW,
-        y + 9,
+    if (report.showAlt)
+      drawText(
+        breakRuleInUse.countPaid ? "Shift hrs" : "Paid hrs",
+        PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + 6 * SHIFT_COLUMN_WIDTH + PAID_COLUMN_WIDTH,
+        SECOND_HOURS_COLUMN_WIDTH,
+        currentTop + 9,
         8,
-        bold,
-        C.white,
+        boldFont,
+        COLORS.white,
         "center",
       );
-    put(
+    drawText(
       "Closes",
-      M + EW + 6 * SW + PW + BW,
-      CW,
-      y + 9,
+      PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + 6 * SHIFT_COLUMN_WIDTH + PAID_COLUMN_WIDTH + SECOND_HOURS_COLUMN_WIDTH,
+      CLOSES_COLUMN_WIDTH,
+      currentTop + 9,
       8,
-      bold,
-      C.white,
+      boldFont,
+      COLORS.white,
       "center",
     );
-    y += 18;
+    currentTop += 18;
   };
-  header("Schedule");
+  drawGridHeader("Schedule");
 
-  if (!snap.schedule.length) {
-    rect(M, y, W - 2 * M, 40, C.band);
-    put(
+  if (!snapshot.schedule.length) {
+    drawFilledRectangle(PAGE_MARGIN, currentTop, PAGE_WIDTH - 2 * PAGE_MARGIN, 40, COLORS.band);
+    drawText(
       "No schedule has been generated yet.",
-      M,
-      W - 2 * M,
-      y + 20,
+      PAGE_MARGIN,
+      PAGE_WIDTH - 2 * PAGE_MARGIN,
+      currentTop + 20,
       10,
-      font,
-      C.mute,
+      regularFont,
+      COLORS.mute,
       "center",
     );
-    y += 40;
+    currentTop += 40;
   } else {
-    const ERH = 26;
-    for (const e of rep.employees) {
-      if (y + ERH > H - BOTTOM) {
-        page = doc.addPage([W, H]);
-        y = M;
-        header("Schedule (continued)");
+    const EMPLOYEE_ROW_HEIGHT = 26;
+    for (const employeeRow of report.employees) {
+      // Start a new page when this row would run into the footer.
+      if (currentTop + EMPLOYEE_ROW_HEIGHT > PAGE_HEIGHT - BOTTOM_RESERVED_SPACE) {
+        currentPage = pdfDocument.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+        currentTop = PAGE_MARGIN;
+        drawGridHeader("Schedule (continued)");
       }
-      put(e.emp.name, M + 6, EW - 10, y + 9, 8.5, bold);
-      put(
-        `${e.emp.type}${e.emp.position ? " | " + e.emp.position : ""}`,
-        M + 6,
-        EW - 10,
-        y + 19,
+      drawText(employeeRow.emp.name, PAGE_MARGIN + 6, EMPLOYEE_COLUMN_WIDTH - 10, currentTop + 9, 8.5, boldFont);
+      drawText(
+        `${employeeRow.emp.type}${employeeRow.emp.position ? " | " + employeeRow.emp.position : ""}`,
+        PAGE_MARGIN + 6,
+        EMPLOYEE_COLUMN_WIDTH - 10,
+        currentTop + 19,
         7,
-        font,
-        C.mute,
+        regularFont,
+        COLORS.mute,
       );
-      DAYS.forEach((d, i) => {
-        const s = e.shifts.find((x) => x.day === d);
-        if (!s) return;
-        const x = M + EW + i * SW + 2;
-        rect(x, y + 2, SW - 4, ERH - 4, shiftFill(s.name));
-        put(s.name, x, SW - 4, y + 9.5, 7.2, bold, C.ink, "center");
-        put(
-          `${t12(s.start, true)} - ${t12(s.end, true)}${hasBreak(s.start, s.end, rule) ? "" : ""}`,
-          x,
-          SW - 4,
-          y + 18.5,
+      // One colored box per day the person works.
+      WORK_DAYS.forEach((dayNumber, columnIndex) => {
+        const shiftForDay = employeeRow.shifts.find((scheduleRow) => scheduleRow.day === dayNumber);
+        if (!shiftForDay) return;
+        const boxLeft = PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + columnIndex * SHIFT_COLUMN_WIDTH + 2;
+        drawFilledRectangle(boxLeft, currentTop + 2, SHIFT_COLUMN_WIDTH - 4, EMPLOYEE_ROW_HEIGHT - 4, shiftFillColor(shiftForDay.name));
+        drawText(shiftForDay.name, boxLeft, SHIFT_COLUMN_WIDTH - 4, currentTop + 9.5, 7.2, boldFont, COLORS.ink, "center");
+        drawText(
+          `${t12(shiftForDay.start, true)} - ${t12(shiftForDay.end, true)}${hasBreak(shiftForDay.start, shiftForDay.end, breakRuleInUse) ? "" : ""}`,
+          boxLeft,
+          SHIFT_COLUMN_WIDTH - 4,
+          currentTop + 18.5,
           7.2,
-          font,
-          C.ink,
+          regularFont,
+          COLORS.ink,
           "center",
         );
       });
-      const off =
-        e.hours < Number(e.emp.min_hours) - 0.005 ||
-        e.hours > Number(e.emp.max_hours) + 0.005;
-      put(
-        r2(e.hours),
-        M + EW + 6 * SW,
-        PW,
-        y + 9,
+      // Hours are shown in red when they fall outside the person's min or max.
+      const isOutsideHoursRange =
+        employeeRow.hours < Number(employeeRow.emp.min_hours) - 0.005 ||
+        employeeRow.hours > Number(employeeRow.emp.max_hours) + 0.005;
+      drawText(
+        formatHours(employeeRow.hours),
+        PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + 6 * SHIFT_COLUMN_WIDTH,
+        PAID_COLUMN_WIDTH,
+        currentTop + 9,
         8.5,
-        bold,
-        off ? C.warn : C.ink,
+        boldFont,
+        isOutsideHoursRange ? COLORS.warn : COLORS.ink,
         "center",
       );
-      put(
-        `${r2(Number(e.emp.min_hours))}-${r2(Number(e.emp.max_hours))}`,
-        M + EW + 6 * SW,
-        PW,
-        y + 19,
+      drawText(
+        `${formatHours(Number(employeeRow.emp.min_hours))}-${formatHours(Number(employeeRow.emp.max_hours))}`,
+        PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + 6 * SHIFT_COLUMN_WIDTH,
+        PAID_COLUMN_WIDTH,
+        currentTop + 19,
         6.5,
-        font,
-        C.mute,
+        regularFont,
+        COLORS.mute,
         "center",
       );
-      if (rep.showAlt)
-        put(
-          r2(e.alt),
-          M + EW + 6 * SW + PW,
-          BW,
-          y + 13,
+      if (report.showAlt)
+        drawText(
+          formatHours(employeeRow.alt),
+          PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + 6 * SHIFT_COLUMN_WIDTH + PAID_COLUMN_WIDTH,
+          SECOND_HOURS_COLUMN_WIDTH,
+          currentTop + 13,
           8.5,
-          font,
-          C.mute,
+          regularFont,
+          COLORS.mute,
           "center",
         );
-      put(
-        String(e.closes),
-        M + EW + 6 * SW + PW + BW,
-        CW,
-        y + 13,
+      drawText(
+        String(employeeRow.closes),
+        PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + 6 * SHIFT_COLUMN_WIDTH + PAID_COLUMN_WIDTH + SECOND_HOURS_COLUMN_WIDTH,
+        CLOSES_COLUMN_WIDTH,
+        currentTop + 13,
         8.5,
-        font,
-        C.ink,
+        regularFont,
+        COLORS.ink,
         "center",
       );
-      y += ERH;
-      hline(y);
+      currentTop += EMPLOYEE_ROW_HEIGHT;
+      drawHorizontalLine(currentTop);
     }
   }
 
-  // ---- Footers on every page
-  const note = !rep.showAlt
+  // ---- Footer on every page: a note about the hours, and the page number.
+  const hoursNote = !report.showAlt
     ? "Hours are scheduled shift length, start to end."
-    : rule.countPaid
-      ? `Hours are paid hours: the ${rule.minutes} minute unpaid lunch is deducted on shifts longer than ${r2(rule.after)} hours.`
-      : `Hours are scheduled shift length. The grey paid figures deduct the ${rule.minutes} minute unpaid lunch on shifts longer than ${r2(rule.after)} hours.`;
-  const pages = doc.getPages();
-  pages.forEach((p, i) => {
-    page = p;
-    hline(H - 30);
-    put(note, M, 560, H - 20, 7, font, C.mute);
-    put(
-      `Page ${i + 1} of ${pages.length}`,
-      W - M - 100,
+    : breakRuleInUse.countPaid
+      ? `Hours are paid hours: the ${breakRuleInUse.minutes} minute unpaid lunch is deducted on shifts longer than ${formatHours(breakRuleInUse.after)} hours.`
+      : `Hours are scheduled shift length. The grey paid figures deduct the ${breakRuleInUse.minutes} minute unpaid lunch on shifts longer than ${formatHours(breakRuleInUse.after)} hours.`;
+  const allPages = pdfDocument.getPages();
+  allPages.forEach((page, pageIndex) => {
+    currentPage = page;
+    drawHorizontalLine(PAGE_HEIGHT - 30);
+    drawText(hoursNote, PAGE_MARGIN, 560, PAGE_HEIGHT - 20, 7, regularFont, COLORS.mute);
+    drawText(
+      `Page ${pageIndex + 1} of ${allPages.length}`,
+      PAGE_WIDTH - PAGE_MARGIN - 100,
       100,
-      H - 20,
+      PAGE_HEIGHT - 20,
       7,
-      font,
-      C.mute,
+      regularFont,
+      COLORS.mute,
       "right",
     );
   });
 
-  return doc.save();
+  return pdfDocument.save();
 }
