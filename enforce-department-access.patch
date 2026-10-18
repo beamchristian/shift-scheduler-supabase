@@ -1,0 +1,303 @@
+From e9b8e8525c8494973f0c03e762023c329a311ec1 Mon Sep 17 00:00:00 2001
+From: ckbeamcoding <ckbeamcoding@gmail.com>
+Date: Sat, 17 Oct 2026 21:57:19 -0400
+Subject: [PATCH] Only let department members load or change data
+
+Every data route now checks the signed-in email against the Deli
+department list on the server. People who are not on the list get a
+403 instead of the data, so removing someone on the Access tab takes
+effect right away. Import is limited to owners because it replaces
+all data.
+
+Co-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Dbibe2AFHP4aR2mKEVHoEr
+---
+ app/api/data/route.ts     |  7 ++++++-
+ app/api/export/route.ts   |  5 ++++-
+ app/api/generate/route.ts |  5 ++++-
+ app/api/import/route.ts   |  3 +++
+ app/api/pdf/route.ts      |  5 ++++-
+ app/api/preview/route.ts  |  5 ++++-
+ app/api/swap/route.ts     |  3 +++
+ app/api/team/route.ts     | 39 ++++++++++-----------------------------
+ app/page.tsx              |  3 +--
+ lib/access.ts             | 39 +++++++++++++++++++++++++++++++++++++++
+ 10 files changed, 78 insertions(+), 36 deletions(-)
+ create mode 100644 lib/access.ts
+
+diff --git a/app/api/data/route.ts b/app/api/data/route.ts
+index 9b3e668..ef05142 100644
+--- a/app/api/data/route.ts
++++ b/app/api/data/route.ts
+@@ -1,17 +1,22 @@
+ import { NextResponse } from 'next/server';
+ import { COLS, coerce, errMsg, q, snapshot } from '../../../lib/db';
++import { whoAmI } from '../../../lib/access';
+ import type { TableName } from '../../../lib/types';
+ 
+ export const dynamic = 'force-dynamic';
+ 
+ type Body = { action: 'save' | 'delete'; table: TableName; row: Record<string, string | number | null> & { id?: number } };
+ 
+-export async function GET() {
++export async function GET(req: Request) {
++  const me = await whoAmI(req);
++  if (me instanceof Response) return me;
+   try { return NextResponse.json(await snapshot()); } catch (e) { return NextResponse.json({ error: errMsg(e) }, { status: 500 }); }
+ }
+ 
+ // Whitelisted generic save/delete so each table editor shares one endpoint.
+ export async function POST(req: Request) {
++  const me = await whoAmI(req);
++  if (me instanceof Response) return me;
+   const { action, table, row } = (await req.json()) as Body;
+   if (!Object.prototype.hasOwnProperty.call(COLS, table)) return NextResponse.json({ error: 'bad table' }, { status: 400 });
+   const cols = COLS[table];
+diff --git a/app/api/export/route.ts b/app/api/export/route.ts
+index be37bb2..9857815 100644
+--- a/app/api/export/route.ts
++++ b/app/api/export/route.ts
+@@ -1,10 +1,13 @@
+ import { NextResponse } from 'next/server';
+ import { errMsg } from '../../../lib/db';
++import { whoAmI } from '../../../lib/access';
+ import { exportAll } from '../../../lib/backup';
+ 
+ export const dynamic = 'force-dynamic';
+ 
+-export async function GET() {
++export async function GET(req: Request) {
++  const me = await whoAmI(req);
++  if (me instanceof Response) return me;
+   try {
+     const date = new Date().toISOString().slice(0, 10);
+     return new Response(JSON.stringify(await exportAll(), null, 2), {
+diff --git a/app/api/generate/route.ts b/app/api/generate/route.ts
+index f91ceb0..89aad11 100644
+--- a/app/api/generate/route.ts
++++ b/app/api/generate/route.ts
+@@ -1,10 +1,13 @@
+ import { NextResponse } from 'next/server';
+ import { errMsg, snapshot } from '../../../lib/db';
+ import { generate } from '../../../lib/generate';
++import { whoAmI } from '../../../lib/access';
+ 
+ export const dynamic = 'force-dynamic';
+ 
+-export async function POST() {
++export async function POST(req: Request) {
++  const me = await whoAmI(req);
++  if (me instanceof Response) return me;
+   try {
+     const warnings = await generate();
+     return NextResponse.json({ ...(await snapshot()), warnings });
+diff --git a/app/api/import/route.ts b/app/api/import/route.ts
+index 4cedd3e..cd29bc2 100644
+--- a/app/api/import/route.ts
++++ b/app/api/import/route.ts
+@@ -1,10 +1,13 @@
+ import { NextResponse } from "next/server";
+ import { snapshot } from "../../../lib/db";
+ import { importAll } from "../../../lib/backup";
++import { whoAmI } from "../../../lib/access";
+ 
+ export const dynamic = "force-dynamic";
+ 
+ export async function POST(req: Request) {
++  const me = await whoAmI(req, { ownerOnly: true });
++  if (me instanceof Response) return me;
+   let body: unknown;
+   try {
+     body = await req.json();
+diff --git a/app/api/pdf/route.ts b/app/api/pdf/route.ts
+index 0b0cf4f..d8b89d4 100644
+--- a/app/api/pdf/route.ts
++++ b/app/api/pdf/route.ts
+@@ -1,10 +1,13 @@
+ import { NextResponse } from "next/server";
+ import { errMsg, snapshot } from "../../../lib/db";
+ import { buildPdf } from "../../../lib/pdf";
++import { whoAmI } from "../../../lib/access";
+ 
+ export const dynamic = "force-dynamic";
+ 
+-export async function GET() {
++export async function GET(req: Request) {
++  const me = await whoAmI(req);
++  if (me instanceof Response) return me;
+   try {
+     const snap = await snapshot();
+     const bytes = await buildPdf(snap);
+diff --git a/app/api/preview/route.ts b/app/api/preview/route.ts
+index 36571e8..a48993b 100644
+--- a/app/api/preview/route.ts
++++ b/app/api/preview/route.ts
+@@ -1,9 +1,12 @@
+ import { NextResponse } from 'next/server';
+ import { errMsg } from '../../../lib/db';
+ import { preview } from '../../../lib/generate';
++import { whoAmI } from '../../../lib/access';
+ 
+ export const dynamic = 'force-dynamic';
+ 
+-export async function POST() {
++export async function POST(req: Request) {
++  const me = await whoAmI(req);
++  if (me instanceof Response) return me;
+   try { return NextResponse.json(await preview()); } catch (e) { return NextResponse.json({ error: errMsg(e) }, { status: 500 }); }
+ }
+diff --git a/app/api/swap/route.ts b/app/api/swap/route.ts
+index ccb69fa..0b5f05d 100644
+--- a/app/api/swap/route.ts
++++ b/app/api/swap/route.ts
+@@ -1,10 +1,13 @@
+ import { NextResponse } from 'next/server';
+ import { errMsg, snapshot } from '../../../lib/db';
+ import { swapClosers } from '../../../lib/swap';
++import { whoAmI } from '../../../lib/access';
+ 
+ export const dynamic = 'force-dynamic';
+ 
+ export async function POST(req: Request) {
++  const me = await whoAmI(req);
++  if (me instanceof Response) return me;
+   const { day } = (await req.json()) as { day: number };
+   if (!(day >= 1 && day <= 6)) return NextResponse.json({ error: 'Pick a day from Monday to Saturday.' }, { status: 400 });
+   try {
+diff --git a/app/api/team/route.ts b/app/api/team/route.ts
+index 07494fb..1140122 100644
+--- a/app/api/team/route.ts
++++ b/app/api/team/route.ts
+@@ -1,41 +1,28 @@
+ import { NextResponse } from 'next/server';
+-import { COOKIE, emailForToken } from '../../../lib/auth';
++import { DEPT, whoAmI } from '../../../lib/access';
+ import { errMsg, q } from '../../../lib/db';
+ 
+ export const dynamic = 'force-dynamic';
+ 
+-// Until department switching is added, access is managed for Deli.
+-const DEPT = 1;
+-
+ type Member = { id: number; email: string; role: string };
+ 
+-function tokenFrom(req: Request): string | undefined {
+-  const cookie = req.headers.get('cookie') || '';
+-  const part = cookie.split(';').map((s) => s.trim()).find((s) => s.startsWith(COOKIE + '='));
+-  return part ? decodeURIComponent(part.slice(COOKIE.length + 1)) : undefined;
+-}
+-
+-// Who is calling, and what role they have in this department (null if none).
+-async function caller(req: Request): Promise<{ email: string; role: string | null } | null> {
+-  const email = await emailForToken(tokenFrom(req));
+-  if (!email) return null;
+-  const rows = await q<{ role: string }>('select role from department_members where department_id = $1 and lower(email) = $2', [DEPT, email]);
+-  return { email, role: rows[0]?.role ?? null };
+-}
+-
+ async function list(): Promise<Member[]> {
+   return q<Member>('select id, email, role from department_members where department_id = $1 order by role, email', [DEPT]);
+ }
+ 
++async function ownerCount(): Promise<number> {
++  const r = await q<{ n: number }>("select count(*)::int as n from department_members where department_id = $1 and role = 'owner'", [DEPT]);
++  return r[0].n;
++}
++
+ async function audit(email: string, action: string, detail: string) {
+   await q('insert into audit_log (department_id, email, action, detail) values ($1, $2, $3, $4)', [DEPT, email, action, detail]);
+ }
+ 
+ export async function GET(req: Request) {
+   try {
+-    const me = await caller(req);
+-    if (!me) return NextResponse.json({ error: 'Please sign in.' }, { status: 401 });
+-    if (!me.role) return NextResponse.json({ error: 'You do not have access to this department.' }, { status: 403 });
++    const me = await whoAmI(req);
++    if (me instanceof Response) return me;
+     return NextResponse.json({ members: await list(), canManage: me.role === 'owner' });
+   } catch (e) {
+     return NextResponse.json({ error: errMsg(e) }, { status: 500 });
+@@ -45,9 +32,8 @@ export async function GET(req: Request) {
+ // Actions: add (email, role), role (id, role), remove (id). Only owners may change access.
+ export async function POST(req: Request) {
+   try {
+-    const me = await caller(req);
+-    if (!me) return NextResponse.json({ error: 'Please sign in.' }, { status: 401 });
+-    if (me.role !== 'owner') return NextResponse.json({ error: 'Only owners can change access.' }, { status: 403 });
++    const me = await whoAmI(req, { ownerOnly: true });
++    if (me instanceof Response) return me;
+ 
+     const body = (await req.json().catch(() => ({}))) as { action?: string; id?: number; email?: string; role?: string };
+     const role = body.role === 'owner' || body.role === 'manager' ? body.role : null;
+@@ -84,8 +70,3 @@ export async function POST(req: Request) {
+     return NextResponse.json({ error: errMsg(e) }, { status: 500 });
+   }
+ }
+-
+-async function ownerCount(): Promise<number> {
+-  const r = await q<{ n: number }>("select count(*)::int as n from department_members where department_id = $1 and role = 'owner'", [DEPT]);
+-  return r[0].n;
+-}
+diff --git a/app/page.tsx b/app/page.tsx
+index b578570..50f0946 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -474,8 +474,7 @@ export default function Page() {
+           <b>Could not load data.</b>
+           <div className='mt-1 break-words'>{loadError}</div>
+           <div className='mt-2 text-amber-800'>
+-            Check that DATABASE_URL is set and that supabase/schema.sql has been
+-            run.
++            If you should have access, ask an owner to add you on the Access tab.
+           </div>
+         </div>
+       </main>
+diff --git a/lib/access.ts b/lib/access.ts
+new file mode 100644
+index 0000000..d545752
+--- /dev/null
++++ b/lib/access.ts
+@@ -0,0 +1,39 @@
++import { NextResponse } from 'next/server';
++import { COOKIE, authConfigured, emailForToken } from './auth';
++import { q } from './db';
++
++// Until department switching is added, every request is checked against Deli (department 1).
++export const DEPT = 1;
++
++export type Who = { email: string; role: 'owner' | 'manager' };
++
++export function tokenFrom(req: Request): string | undefined {
++  const cookie = req.headers.get('cookie') || '';
++  const part = cookie.split(';').map((s) => s.trim()).find((s) => s.startsWith(COOKIE + '='));
++  return part ? decodeURIComponent(part.slice(COOKIE.length + 1)) : undefined;
++}
++
++// Returns who is calling if they are on the department list. Otherwise returns a response to send back.
++export async function whoAmI(req: Request, opts: { ownerOnly?: boolean } = {}): Promise<Who | Response> {
++  if (!authConfigured()) {
++    if (process.env.NODE_ENV === 'production') {
++      return NextResponse.json({ error: 'Sign-in is not configured.' }, { status: 503 });
++    }
++    return { email: 'local', role: 'owner' };
++  }
++  const email = await emailForToken(tokenFrom(req));
++  if (!email) return NextResponse.json({ error: 'Please sign in.' }, { status: 401 });
++
++  const rows = await q<{ role: string }>(
++    'select role from department_members where department_id = $1 and lower(email) = $2',
++    [DEPT, email],
++  );
++  const role = rows[0]?.role;
++  if (role !== 'owner' && role !== 'manager') {
++    return NextResponse.json({ error: 'You do not have access to this department. Ask an owner to add you.' }, { status: 403 });
++  }
++  if (opts.ownerOnly && role !== 'owner') {
++    return NextResponse.json({ error: 'Only owners can do this.' }, { status: 403 });
++  }
++  return { email, role };
++}
+-- 
+2.43.0
+
