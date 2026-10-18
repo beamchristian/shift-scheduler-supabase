@@ -1,24 +1,28 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { COOKIE, authConfigured, emailForToken } from './lib/auth';
 
-// Password gate for the whole site (pages and API), using HTTP Basic auth.
-// Set APP_PASSWORD (and optionally APP_USER) in your environment. In production the app refuses to run without it,
-// because it holds employee pay data.
-export function middleware(req: NextRequest) {
-  const pass = process.env.APP_PASSWORD;
-  if (!pass) {
-    if (process.env.NODE_ENV === 'production') return new NextResponse('Set the APP_PASSWORD environment variable to use this app.', { status: 503 });
+// Every page and API route needs a signed-in user, except the sign-in page and its API.
+const PUBLIC = new Set(['/login', '/api/login']);
+
+export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+  if (PUBLIC.has(pathname)) return NextResponse.next();
+
+  if (!authConfigured()) {
+    if (process.env.NODE_ENV === 'production') {
+      return new NextResponse('Set SUPABASE_URL and SUPABASE_ANON_KEY to use this app.', { status: 503 });
+    }
     return NextResponse.next();
   }
-  const header = req.headers.get('authorization') ?? '';
-  if (header.startsWith('Basic ')) {
-    const decoded = atob(header.slice(6));
-    const i = decoded.indexOf(':');
-    const user = decoded.slice(0, i);
-    const given = decoded.slice(i + 1);
-    const wantUser = process.env.APP_USER;
-    if (given === pass && (!wantUser || user === wantUser)) return NextResponse.next();
-  }
-  return new NextResponse('Authentication required', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="Shift Scheduler"' } });
+
+  const email = await emailForToken(req.cookies.get(COOKIE)?.value);
+  if (email) return NextResponse.next();
+
+  if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'Please sign in.' }, { status: 401 });
+  const url = req.nextUrl.clone();
+  url.pathname = '/login';
+  url.search = '';
+  return NextResponse.redirect(url);
 }
 
 export const config = { matcher: '/((?!_next/static|_next/image|favicon.ico).*)' };
