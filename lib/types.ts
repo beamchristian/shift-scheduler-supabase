@@ -27,7 +27,6 @@ export interface Employee {
   type: "FT" | "PT";
   min_hours: number;
   max_hours: number;
-  wage: number;
   skills: string;
   shifts: string | null;
   max_closes: number | string | null;

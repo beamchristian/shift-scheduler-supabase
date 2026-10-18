@@ -48,7 +48,7 @@ export interface Report {
 // The labor matrix and per-employee hours. Used by the screen and the PDF.
 export function buildReport(snap: Snapshot): Report {
   const rule = breakRule(snap.settings);
-  const rate = avgRate(snap.settings, snap.employees);
+  const rate = avgRate(snap.settings);
   const sales = dailySales(snap.store_hours, snap.settings);
   const need = requiredHours(snap.shift_templates, rule);
   const closeAt: Record<number, string> = Object.fromEntries(

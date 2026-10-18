@@ -62,7 +62,8 @@ async function plan(write: boolean): Promise<Plan> {
   const unfilledSlots: ShiftTemplate[] = [];
   const badAvail = new Set<string>();
 
-  const rate = avgRate(s, emps);
+  const rate = avgRate(s);
+  if (write && !(rate > 0)) warnings.push("Set the average hourly rate in Settings so payroll can be calculated.");
   const sales = dailySales(storeHours, s);
   const budget: Record<number, number> = {};
   const dayHrs: Record<number, number> = {};
@@ -125,7 +126,7 @@ async function plan(write: boolean): Promise<Plan> {
     }
     const pick = candidates(t)
       .map((e) => {
-        let sc = Math.max(0, e.min_hours - e.hrs) * 2 - e.hrs - e.wage * 0.1;
+        let sc = Math.max(0, e.min_hours - e.hrs) * 2 - e.hrs;
         if (need && e.sk.includes(need)) sc += 100;
         // Part-timers are favored for shorter shifts, full-timers for longer ones
         sc += (e.type === "PT" ? 1 : -1) * (avgLen - len) * 20;
@@ -396,7 +397,7 @@ async function plan(write: boolean): Promise<Plan> {
               vh.get(e.id)!.hrs + len - (raises.get(e.id)?.to ?? e.max_hours),
             ),
           }))
-          .sort((a, b) => a.need - b.need || a.e.wage - b.e.wage)[0];
+          .sort((a, b) => a.need - b.need || a.e.id - b.e.id)[0];
         if (!best) continue;
         const v = vh.get(best.e.id)!;
         v.hrs += len;

@@ -3,11 +3,10 @@ import type { Employee, Settings, ShiftTemplate, StoreHour } from "./types";
 
 // Labor matrix: daily hours allowed = daily sales x payroll % / average hourly rate.
 // Daily sales = the week's forecast split by each day's share of weekly sales.
-export function avgRate(s: Settings, emps: Employee[]): number {
+// The average hourly rate is a single setting. Pay is never stored per person.
+export function avgRate(s: Settings): number {
   const o = Number(s.rate_override);
-  if (o > 0) return o;
-  const w = emps.map((e) => Number(e.wage)).filter((x) => x > 0);
-  return w.length ? w.reduce((a, b) => a + b, 0) / w.length : 0;
+  return o > 0 ? o : 0;
 }
 
 export function dailySales(
