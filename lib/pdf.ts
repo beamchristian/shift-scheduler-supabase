@@ -5,7 +5,7 @@ import {
   type PDFFont,
   type PDFPage,
 } from "pdf-lib";
-import { hasBreak, t12 } from "./hours";
+import { t12 } from "./hours";
 import { buildReport } from "./report";
 import type { Snapshot } from "./types";
 
@@ -17,22 +17,29 @@ const PAGE_MARGIN = 28;
 // Space kept clear at the bottom of each page, above the footer.
 const BOTTOM_RESERVED_SPACE = 40;
 
+// Column widths shared by the labor matrix and the schedule grid, so each day lines up in both.
+const EMPLOYEE_COLUMN_WIDTH = 108;
+const SHIFT_COLUMN_WIDTH = 86;
+const PAID_COLUMN_WIDTH = 52;
+const SECOND_HOURS_COLUMN_WIDTH = 52;
+
 // Colors used in the PDF.
 const COLORS = {
   ink: rgb(0.06, 0.09, 0.16),
   mute: rgb(0.4, 0.45, 0.53),
   line: rgb(0.83, 0.86, 0.9),
+  divider: rgb(0.6, 0.65, 0.73),
   band: rgb(0.965, 0.971, 0.98),
   head: rgb(0.31, 0.27, 0.9),
   white: rgb(1, 1, 1),
   warn: rgb(0.71, 0.33, 0.04),
   ok: rgb(0.02, 0.45, 0.32),
 };
-// Background colors for shift boxes, by kind of shift.
+// Background colors for shift boxes, by kind of shift. Darker so they show up on a black-and-white printer.
 const SHIFT_FILLS = {
-  open: rgb(0.996, 0.953, 0.78),
-  close: rgb(0.878, 0.906, 1),
-  other: rgb(0.82, 0.98, 0.9),
+  open: rgb(0.98, 0.82, 0.36),
+  close: rgb(0.6, 0.72, 0.97),
+  other: rgb(0.55, 0.86, 0.7),
 };
 // Short day names for the columns. Index 1 is Monday.
 const DAY_LABELS = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -41,7 +48,7 @@ const WORK_DAYS = [1, 2, 3, 4, 5, 6];
 
 // The built-in PDF fonts only cover Latin text, so anything else becomes a question mark.
 const replaceUnsupportedCharacters = (text: string) =>
-  text.replace(/[^\x20-\x7E -ÿ–—‘’“”•…]/g, "?");
+  text.replace(/[^\x20-\x7E -ÿ–—‘’“”•…]/g, "?");
 
 // Formats a dollar amount with no cents, for example "$1,234".
 const formatMoney = (amount: number) =>
@@ -145,6 +152,20 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
       thickness: 0.5,
       color: COLORS.line,
     });
+  // Draws a vertical line between the day columns, from `top` to `bottom`, for one row of the matrix or grid.
+  // The lines sit on the same column edges in both tables, so each day lines up from top to bottom.
+  const drawDayDividers = (top: number, bottom: number) => {
+    for (let edgeIndex = 0; edgeIndex <= WORK_DAYS.length; edgeIndex++) {
+      const x =
+        PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + edgeIndex * SHIFT_COLUMN_WIDTH;
+      currentPage.drawLine({
+        start: { x, y: PAGE_HEIGHT - top },
+        end: { x, y: PAGE_HEIGHT - bottom },
+        thickness: 0.5,
+        color: COLORS.divider,
+      });
+    }
+  };
 
   // ---- Title block
   drawText(scheduleTitle, PAGE_MARGIN, 520, currentTop + 11, 18, boldFont);
@@ -169,7 +190,6 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
   const subtitleParts = [
     `Forecast sales ${formatMoney(weeklySalesForecast)}`,
     `Payroll target ${payrollPercent}% (${formatMoney(totals.target)})`,
-    `Average rate $${hourlyRate.toFixed(2)}/hr`,
     breakRuleInUse.minutes > 0
       ? `Lunch ${breakRuleInUse.minutes} min ${breakRuleInUse.unpaid ? "unpaid" : "paid"} on shifts over ${formatHours(breakRuleInUse.after)} hrs`
       : "No lunch breaks",
@@ -210,9 +230,11 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
   currentTop += 17;
 
   // ---- Labor matrix
-  const LABEL_COLUMN_WIDTH = 176;
-  const DAY_COLUMN_WIDTH = 78;
-  const TOTAL_COLUMN_WIDTH = 92;
+  // The label column matches the employee column, and each day matches its schedule column.
+  // The total sits over the two hours columns at the right of the grid.
+  const LABEL_COLUMN_WIDTH = EMPLOYEE_COLUMN_WIDTH;
+  const DAY_COLUMN_WIDTH = SHIFT_COLUMN_WIDTH;
+  const TOTAL_COLUMN_WIDTH = PAID_COLUMN_WIDTH + SECOND_HOURS_COLUMN_WIDTH;
   // True when a figure is over its allowance (with a small rounding margin).
   const isOverAllowance = (actual: number, allowed: number) =>
     actual > allowed + 0.005;
@@ -333,23 +355,23 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
     drawText(
       DAY_LABELS[dayNumber],
       PAGE_MARGIN + LABEL_COLUMN_WIDTH + columnIndex * DAY_COLUMN_WIDTH,
-      DAY_COLUMN_WIDTH - 8,
+      DAY_COLUMN_WIDTH,
       currentTop + HEADER_ROW_HEIGHT / 2,
       8.5,
       boldFont,
       COLORS.white,
-      "right",
+      "center",
     ),
   );
   drawText(
     "Total",
     PAGE_MARGIN + LABEL_COLUMN_WIDTH + 6 * DAY_COLUMN_WIDTH,
-    TOTAL_COLUMN_WIDTH - 8,
+    TOTAL_COLUMN_WIDTH,
     currentTop + HEADER_ROW_HEIGHT / 2,
     8.5,
     boldFont,
     COLORS.white,
-    "right",
+    "center",
   );
   currentTop += HEADER_ROW_HEIGHT;
   matrixRows.forEach((matrixRow, rowIndex) => {
@@ -379,35 +401,31 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
       drawText(
         cellText,
         PAGE_MARGIN + LABEL_COLUMN_WIDTH + columnIndex * DAY_COLUMN_WIDTH,
-        DAY_COLUMN_WIDTH - 8,
+        DAY_COLUMN_WIDTH,
         currentTop + rowHeight / 2,
         fontSize,
         rowFont,
         matrixRow.flag?.[columnIndex] ? COLORS.warn : textColor,
-        "right",
+        "center",
       ),
     );
     drawText(
       matrixRow.total,
       PAGE_MARGIN + LABEL_COLUMN_WIDTH + 6 * DAY_COLUMN_WIDTH,
-      TOTAL_COLUMN_WIDTH - 8,
+      TOTAL_COLUMN_WIDTH,
       currentTop + rowHeight / 2,
       fontSize,
       matrixRow.sub ? regularFont : boldFont,
       matrixRow.totalFlag ? COLORS.warn : textColor,
-      "right",
+      "center",
     );
+    drawDayDividers(currentTop, currentTop + rowHeight);
     currentTop += rowHeight;
     drawHorizontalLine(currentTop);
   });
   currentTop += 14;
 
   // ---- Schedule grid
-  const EMPLOYEE_COLUMN_WIDTH = 108;
-  const SHIFT_COLUMN_WIDTH = 82;
-  const PAID_COLUMN_WIDTH = 42;
-  const SECOND_HOURS_COLUMN_WIDTH = 52;
-  const CLOSES_COLUMN_WIDTH = 44;
   // Draws the grid's title and column headings. Called at the top of every grid page.
   const drawGridHeader = (headerTitle: string) => {
     drawText(headerTitle, PAGE_MARGIN, 300, currentTop + 6, 11, boldFont);
@@ -464,20 +482,6 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
         COLORS.white,
         "center",
       );
-    drawText(
-      "Closes",
-      PAGE_MARGIN +
-        EMPLOYEE_COLUMN_WIDTH +
-        6 * SHIFT_COLUMN_WIDTH +
-        PAID_COLUMN_WIDTH +
-        SECOND_HOURS_COLUMN_WIDTH,
-      CLOSES_COLUMN_WIDTH,
-      currentTop + 9,
-      8,
-      boldFont,
-      COLORS.white,
-      "center",
-    );
     currentTop += 18;
   };
   drawGridHeader("Schedule");
@@ -559,7 +563,7 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
           "center",
         );
         drawText(
-          `${t12(shiftForDay.start, true)} - ${t12(shiftForDay.end, true)}${hasBreak(shiftForDay.start, shiftForDay.end, breakRuleInUse) ? "" : ""}`,
+          `${t12(shiftForDay.start, true)} - ${t12(shiftForDay.end, true)}`,
           boxLeft,
           SHIFT_COLUMN_WIDTH - 4,
           currentTop + 18.5,
@@ -569,28 +573,14 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
           "center",
         );
       });
-      // Hours are shown in red when they fall outside the person's min or max.
-      const isOutsideHoursRange =
-        employeeRow.hours < Number(employeeRow.emp.min_hours) - 0.005 ||
-        employeeRow.hours > Number(employeeRow.emp.max_hours) + 0.005;
       drawText(
         formatHours(employeeRow.hours),
         PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + 6 * SHIFT_COLUMN_WIDTH,
         PAID_COLUMN_WIDTH,
-        currentTop + 9,
+        currentTop + 13,
         8.5,
         boldFont,
-        isOutsideHoursRange ? COLORS.warn : COLORS.ink,
-        "center",
-      );
-      drawText(
-        `${formatHours(Number(employeeRow.emp.min_hours))}-${formatHours(Number(employeeRow.emp.max_hours))}`,
-        PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + 6 * SHIFT_COLUMN_WIDTH,
-        PAID_COLUMN_WIDTH,
-        currentTop + 19,
-        6.5,
-        regularFont,
-        COLORS.mute,
+        COLORS.ink,
         "center",
       );
       if (report.showAlt)
@@ -607,20 +597,7 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
           COLORS.mute,
           "center",
         );
-      drawText(
-        String(employeeRow.closes),
-        PAGE_MARGIN +
-          EMPLOYEE_COLUMN_WIDTH +
-          6 * SHIFT_COLUMN_WIDTH +
-          PAID_COLUMN_WIDTH +
-          SECOND_HOURS_COLUMN_WIDTH,
-        CLOSES_COLUMN_WIDTH,
-        currentTop + 13,
-        8.5,
-        regularFont,
-        COLORS.ink,
-        "center",
-      );
+      drawDayDividers(currentTop, currentTop + EMPLOYEE_ROW_HEIGHT);
       currentTop += EMPLOYEE_ROW_HEIGHT;
       drawHorizontalLine(currentTop);
     }

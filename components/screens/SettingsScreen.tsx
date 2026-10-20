@@ -1,17 +1,28 @@
 "use client";
 import type { Snapshot } from "../../lib/types";
 import { asTableRows } from "../../lib/ui/format";
-import { cardClass, primaryButtonClass, secondaryButtonClass } from "../../lib/ui/styles";
+import {
+  cardClass,
+  primaryButtonClass,
+  secondaryButtonClass,
+} from "../../lib/ui/styles";
 import { EditableTable } from "../EditableTable/EditableTable";
 import type { ColumnDefinition, TableRow } from "../types";
 import { Callout } from "../ui/Callout";
 import { Heading } from "../ui/Heading";
-import { RecentChanges } from "./RecentChanges";
 
 // Settings for payroll and the shift start window.
 const PAYROLL_COLUMNS: ColumnDefinition[] = [
-  { key: "payroll_pct", label: "Target payroll (% of sales)", inputType: "number" },
-  { key: "fill_extra", label: "Fill extra shifts to budget (1 = yes, 0 = no)", inputType: "number" },
+  {
+    key: "payroll_pct",
+    label: "Target payroll (% of sales)",
+    inputType: "number",
+  },
+  {
+    key: "fill_extra",
+    label: "Fill extra shifts to budget (1 = yes, 0 = no)",
+    inputType: "number",
+  },
   {
     key: "max_closes",
     label: "Default max closing shifts per person per week (0 = no limit)",
@@ -29,8 +40,16 @@ const PAYROLL_COLUMNS: ColumnDefinition[] = [
 // Settings for lunch breaks and the printed PDF.
 const BREAK_COLUMNS: ColumnDefinition[] = [
   { key: "break_minutes", label: "Lunch break (minutes)", inputType: "number" },
-  { key: "break_after", label: "Applies to shifts longer than (hours)", inputType: "number" },
-  { key: "breaks_unpaid", label: "Lunch is unpaid? (1 = yes, 0 = no)", inputType: "number" },
+  {
+    key: "break_after",
+    label: "Applies to shifts longer than (hours)",
+    inputType: "number",
+  },
+  {
+    key: "breaks_unpaid",
+    label: "Lunch is unpaid? (1 = yes, 0 = no)",
+    inputType: "number",
+  },
   {
     key: "count_paid_hours",
     label: "Run budget and min/max on paid hours? (0 = no, use shift hours)",
@@ -61,9 +80,12 @@ export function SettingsScreen({
   backupMessage: { tone: "ok" | "warn" | "info"; text: string } | null;
   onImportFile: (selectedFile: File | undefined) => void;
 }) {
-  // Adds up the day weights, so the person can see whether they total 100.
+  // Adds up the day weights, shown in the note under the store hours table.
   const dayWeightTotal = data.store_hours
-    .reduce((runningTotal, storeHour) => runningTotal + Number(storeHour.sales_pct), 0)
+    .reduce(
+      (runningTotal, storeHour) => runningTotal + Number(storeHour.sales_pct),
+      0,
+    )
     .toFixed(1);
 
   return (
@@ -111,8 +133,10 @@ export function SettingsScreen({
         onDataChange={onDataChange}
       />
       <p className='mt-2 text-xs text-slate-500'>
-        Day weights currently total {dayWeightTotal}% and should total 100. They
-        split the weekly forecast, and the extra hours, across the days.
+        Day weights are relative shares, so they don't need to total 100. Each
+        day gets its weight divided by the total of all weights (currently{" "}
+        {dayWeightTotal}), applied to the weekly forecast. The days always add
+        up to the full forecast.
       </p>
 
       <h2 className='mb-2 mt-8 text-sm font-semibold text-slate-700'>
@@ -126,7 +150,11 @@ export function SettingsScreen({
           current data.
         </p>
         <div className='flex flex-col gap-2 sm:flex-row'>
-          <a href='/api/export' download className={`${primaryButtonClass} w-full sm:w-auto`}>
+          <a
+            href='/api/export'
+            download
+            className={`${primaryButtonClass} w-full sm:w-auto`}
+          >
             Export all data
           </a>
           <label
@@ -151,11 +179,6 @@ export function SettingsScreen({
           <Callout tone={backupMessage.tone}>{backupMessage.text}</Callout>
         )}
       </div>
-
-      <h2 className='mb-2 mt-8 text-sm font-semibold text-slate-700'>
-        Recent changes
-      </h2>
-      <RecentChanges />
     </>
   );
 }
