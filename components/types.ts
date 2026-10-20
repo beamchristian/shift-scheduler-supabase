@@ -8,7 +8,8 @@ export type Tab =
   | "Availability"
   | "Shifts"
   | "Settings"
-  | "Access";
+  | "Access"
+  | "Store overview";
 
 // The screens in the order they appear in the navigation.
 export const TAB_ORDER: Tab[] = [
@@ -18,7 +19,15 @@ export const TAB_ORDER: Tab[] = [
   "Shifts",
   "Settings",
   "Access",
+  "Store overview",
 ];
+
+// The tabs this person may open. The store overview is only for company admins and store managers.
+export function visibleTabsFor(canSeeStoreOverview: boolean): Tab[] {
+  return TAB_ORDER.filter(
+    (tabName) => tabName !== "Store overview" || canSeeStoreOverview,
+  );
+}
 
 // One row from an editable table, keyed by column name. The id is missing for a new row.
 export type TableRow = { id?: number } & Record<string, string | number | null>;
@@ -72,6 +81,7 @@ export type CurrentUser = {
   storeName: string;
   isCompanyAdmin: boolean;
   canSeeStoreManagers: boolean;
+  canSeeStoreOverview: boolean;
   canManageAccess: boolean;
   role: string;
   memberships: {

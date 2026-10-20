@@ -1,6 +1,6 @@
 "use client";
 import { fieldClass } from "../lib/ui/styles";
-import { TAB_ORDER, type CurrentUser, type Tab } from "./types";
+import { type CurrentUser, type Tab } from "./types";
 import { TabIcon } from "./ui/TabIcon";
 
 // Puts each person's departments under the store they belong to, in the order they came back.
@@ -35,12 +35,14 @@ function roleLabel(user: CurrentUser): string {
 export function AppHeader({
   currentUser,
   currentTab,
+  visibleTabs,
   onSelectTab,
   onSwitchDepartment,
   onSignOut,
 }: {
   currentUser: CurrentUser | null;
   currentTab: Tab;
+  visibleTabs: Tab[];
   onSelectTab: (tab: Tab) => void;
   onSwitchDepartment: (departmentId: number) => void;
   onSignOut: () => void;
@@ -57,7 +59,7 @@ export function AppHeader({
           </span>
         </div>
         <nav className='hidden gap-1 md:flex'>
-          {TAB_ORDER.map((tabName) => (
+          {visibleTabs.map((tabName) => (
             <button
               key={tabName}
               onClick={() => onSelectTab(tabName)}

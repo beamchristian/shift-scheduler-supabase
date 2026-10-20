@@ -6,6 +6,7 @@ import { AccessScreen } from "../components/screens/AccessScreen";
 import { AvailabilityScreen } from "../components/screens/AvailabilityScreen";
 import { ScheduleScreen } from "../components/screens/ScheduleScreen";
 import { SettingsScreen } from "../components/screens/SettingsScreen";
+import { StoreOverviewScreen } from "../components/screens/StoreOverviewScreen";
 import { ShiftsScreen } from "../components/screens/ShiftsScreen";
 import { TeamScreen } from "../components/screens/TeamScreen";
 import type {
@@ -17,9 +18,14 @@ import type {
 } from "../components/types";
 import type { Snapshot, TableName } from "../lib/types";
 import { callApi } from "../lib/ui/format";
+import type { StoreOverview } from "../lib/storeOverview";
+import { visibleTabsFor } from "../components/types";
 
 // The reply from the team endpoint: the access list, and whether the signed-in person may change it.
 type TeamReply = { members: AccessMember[]; canManage: boolean };
+
+// The reply from the store overview endpoint: the store's name, plus the combined figures.
+type StoreOverviewReply = StoreOverview & { storeName: string };
 
 // The reply from the swap-closers endpoint: the new data, whether the swap worked, and a message to show.
 type SwapReply = Snapshot & { ok: boolean; message: string };
@@ -55,6 +61,10 @@ export default function Page() {
   } | null>(null);
   // Who is signed in, and the departments they can switch between.
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+
+  // State for the store overview screen: the combined figures, or the error from loading them.
+  const [storeOverview, setStoreOverview] = useState<StoreOverviewReply | null>(null);
+  const [storeOverviewError, setStoreOverviewError] = useState<string | null>(null);
 
   // State for the Access screen.
   const [members, setMembers] = useState<AccessMember[]>([]);
@@ -119,6 +129,16 @@ export default function Page() {
   // Loads the access list each time the Access screen opens.
   useEffect(() => {
     if (currentTab === "Access") requestTeam();
+  }, [currentTab]);
+  // Loads the store overview each time its screen opens, so the figures are current.
+  useEffect(() => {
+    if (currentTab !== "Store overview") return;
+    callApi<StoreOverviewReply>("/api/store-overview")
+      .then((overviewReply) => {
+        setStoreOverview(overviewReply);
+        setStoreOverviewError(null);
+      })
+      .catch((thrownError: Error) => setStoreOverviewError(thrownError.message));
   }, [currentTab]);
 
   // Signs out and returns to the sign-in page.
@@ -242,6 +262,7 @@ export default function Page() {
       <AppHeader
         currentUser={currentUser}
         currentTab={currentTab}
+        visibleTabs={visibleTabsFor(currentUser?.canSeeStoreOverview ?? false)}
         onSelectTab={setCurrentTab}
         onSwitchDepartment={switchDepartment}
         onSignOut={signOut}
@@ -316,9 +337,21 @@ export default function Page() {
             onAddMember={addMember}
           />
         )}
+
+        {currentTab === "Store overview" && (
+          <StoreOverviewScreen
+            overview={storeOverview}
+            storeName={currentUser?.storeName}
+            loadError={storeOverviewError}
+          />
+        )}
       </main>
 
-      <MobileTabBar currentTab={currentTab} onSelectTab={setCurrentTab} />
+      <MobileTabBar
+        currentTab={currentTab}
+        visibleTabs={visibleTabsFor(currentUser?.canSeeStoreOverview ?? false)}
+        onSelectTab={setCurrentTab}
+      />
     </div>
   );
 }

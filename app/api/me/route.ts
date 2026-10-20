@@ -16,6 +16,7 @@ export async function GET(request: Request) {
     storeName: caller.storeName,
     isCompanyAdmin: await isCompanyAdmin(caller.email),
     canSeeStoreManagers: await canManageStore(caller.email, caller.storeId),
+    canSeeStoreOverview: await canManageStore(caller.email, caller.storeId),
     role: caller.role,
     canManageAccess: caller.canManageAccess,
     memberships: caller.memberships,
