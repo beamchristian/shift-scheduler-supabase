@@ -222,28 +222,30 @@ function DepartmentSalesBar({
   const hasChanged = isValidAmount && Math.round(typedWeeklySales) !== Math.round(weeklySalesDefault);
 
   return (
-    <div className='flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3'>
+    <div className='flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5'>
       <div>
         <h3 className='text-sm font-semibold text-slate-900'>{departmentName}</h3>
-        <p className='text-xs text-slate-500'>Each day gets its share of this total from the day weights in Settings.</p>
+        <p className='text-xs text-slate-500'>Each day gets its share from the day weights in Settings.</p>
       </div>
-      <div className='flex flex-wrap items-center gap-2'>
-        <span className='text-xs font-medium text-slate-600'>Weekly projected sales</span>
-        <input
-          className={`${fieldClass} w-36 text-right`}
-          type='number'
-          min='0'
-          step='100'
-          inputMode='decimal'
-          aria-label={`${departmentName} weekly projected sales`}
-          value={weeklySalesText}
-          onChange={(changeEvent) => {
-            setJustSaved(false);
-            setWeeklySalesText(changeEvent.target.value);
-          }}
-        />
+      <div className='flex items-center gap-2 whitespace-nowrap'>
+        <span className='text-xs font-medium text-slate-600'>Weekly sales</span>
+        <div className='w-32'>
+          <input
+            className={`${fieldClass} py-1.5 text-right`}
+            type='number'
+            min='0'
+            step='100'
+            inputMode='decimal'
+            aria-label={`${departmentName} weekly projected sales`}
+            value={weeklySalesText}
+            onChange={(changeEvent) => {
+              setJustSaved(false);
+              setWeeklySalesText(changeEvent.target.value);
+            }}
+          />
+        </div>
         <button
-          className={secondaryButtonClass}
+          className={`${secondaryButtonClass} px-3 py-1.5`}
           disabled={!hasChanged || isSaving}
           onClick={() => onSave(typedWeeklySales).then(() => setJustSaved(true)).catch(() => undefined)}
         >
@@ -345,36 +347,41 @@ export function StoreOverviewScreen({
       <MatrixTable rows={storeTotalRows(overview.days, overview.totals)} />
 
       <h2 className='mb-2 mt-8 text-sm font-semibold text-slate-700'>Store payroll target</h2>
-      <div className='flex flex-wrap items-end gap-3'>
-        <label className='block'>
-          <span className='text-sm font-medium text-slate-700'>Payroll target for the whole store (%)</span>
-          <input
-            className={`${fieldClass} mt-1 w-40`}
-            type='number'
-            min='0'
-            max='100'
-            step='0.1'
-            inputMode='decimal'
-            placeholder='for example 12'
-            value={shownPayrollText}
-            onChange={(changeEvent) => {
-              setPayrollSaved(false);
-              setPayrollPercentText(changeEvent.target.value);
-            }}
-          />
+      <div>
+        <label htmlFor='store-payroll-target' className='text-sm font-medium text-slate-700'>
+          Payroll target for the whole store (%)
         </label>
-        <button
-          className={secondaryButtonClass}
-          disabled={!hasUnsavedPayroll || savingPayroll}
-          onClick={savePayroll}
-        >
-          {savingPayroll ? "Saving…" : "Save target"}
-        </button>
-        {payrollError ? (
-          <span className='text-sm text-rose-600'>{payrollError}</span>
-        ) : payrollSaved ? (
-          <span className='text-sm text-emerald-700'>Saved</span>
-        ) : null}
+        <div className='mt-1 flex flex-wrap items-center gap-2'>
+          <div className='w-32'>
+            <input
+              id='store-payroll-target'
+              className={`${fieldClass} py-1.5 text-right`}
+              type='number'
+              min='0'
+              max='100'
+              step='0.1'
+              inputMode='decimal'
+              placeholder='for example 12'
+              value={shownPayrollText}
+              onChange={(changeEvent) => {
+                setPayrollSaved(false);
+                setPayrollPercentText(changeEvent.target.value);
+              }}
+            />
+          </div>
+          <button
+            className={`${secondaryButtonClass} px-3 py-1.5`}
+            disabled={!hasUnsavedPayroll || savingPayroll}
+            onClick={savePayroll}
+          >
+            {savingPayroll ? "Saving…" : "Save target"}
+          </button>
+          {payrollError ? (
+            <span className='text-sm text-rose-600'>{payrollError}</span>
+          ) : payrollSaved ? (
+            <span className='text-sm text-emerald-700'>Saved</span>
+          ) : null}
+        </div>
       </div>
       <div className='mt-3'>
         {payrollPercent === null ? (
