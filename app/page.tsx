@@ -142,12 +142,17 @@ export default function Page() {
   useEffect(() => {
     if (currentTab === "Store overview") loadStoreOverview();
   }, [currentTab]);
-  // Saves one department's weekly sales, then reloads the overview. A failed save is thrown back to the screen.
+  // Shows the overview a save sent back, so the figures update without a page refresh.
+  const showStoreOverview = (overviewReply: StoreOverviewReply) => {
+    setStoreOverview(overviewReply);
+    setStoreOverviewError(null);
+  };
+  // Saves one department's weekly sales. A failed save is thrown back to the screen.
   const saveDepartmentSales = (departmentId: number, weeklySales: number) =>
-    callApi("/api/store-overview/sales", { departmentId, weeklySales }).then(() => loadStoreOverview());
-  // Saves the store payroll target, then reloads the overview. Blank clears it.
+    callApi<StoreOverviewReply>("/api/store-overview/sales", { departmentId, weeklySales }).then(showStoreOverview);
+  // Saves the store payroll target. Blank clears it.
   const saveStorePayroll = (payrollPercentText: string) =>
-    callApi("/api/store-overview/payroll", { payrollPercent: payrollPercentText }).then(() => loadStoreOverview());
+    callApi<StoreOverviewReply>("/api/store-overview/payroll", { payrollPercent: payrollPercentText }).then(showStoreOverview);
 
   // Signs out and returns to the sign-in page.
   const signOut = () =>

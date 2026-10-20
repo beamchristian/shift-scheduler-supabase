@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { cardClass, fieldClass, secondaryButtonClass } from "../../lib/ui/styles";
 import { DAY_SHORT_LABELS, formatMoney, roundTo2 } from "../../lib/ui/format";
 import type { DayRow } from "../../lib/report";
@@ -17,6 +17,9 @@ type OverviewRow = {
   flags?: boolean[];
   totalFlag?: boolean;
 };
+
+// The overview as the screen receives it: the store overview, plus the store's name and saved payroll target.
+type OverviewData = StoreOverview & { storeName: string; storePayrollPercent: number | null };
 
 // Formats an hours figure with at most two decimals, for example "7.5".
 const formatHoursText = (hours: number) => String(roundTo2(hours));
@@ -112,6 +115,7 @@ function payrollCheckRows(days: StoreDayTotals[], totals: StoreDayTotals, payrol
 
 // Builds the rows for one department's breakdown table, one value per day.
 function departmentRows(days: DayRow[]): OverviewRow[] {
+  const totalSales = days.reduce((running, dayRow) => running + dayRow.sales, 0);
   const totalAllowed = days.reduce((running, dayRow) => running + dayRow.allowed, 0);
   const totalSched = days.reduce((running, dayRow) => running + dayRow.sched, 0);
   const totalSchedCost = days.reduce((running, dayRow) => running + dayRow.schedCost, 0);
@@ -119,7 +123,7 @@ function departmentRows(days: DayRow[]): OverviewRow[] {
     {
       label: "Projected sales",
       cells: days.map((dayRow) => formatMoney(dayRow.sales)),
-      total: formatMoney(days.reduce((running, dayRow) => running + dayRow.sales, 0)),
+      total: formatMoney(totalSales),
     },
     {
       label: "Allowed hours",
@@ -146,10 +150,11 @@ function departmentRows(days: DayRow[]): OverviewRow[] {
   ];
 }
 
-// One matrix table: a header with the day names, then one row per figure.
-function MatrixTable({ rows }: { rows: OverviewRow[] }) {
+// One matrix table: a header with the day names, then one row per figure. An optional header sits above it in the same card.
+function MatrixTable({ rows, header }: { rows: OverviewRow[]; header?: ReactNode }) {
   return (
     <div className={`${cardClass} overflow-x-auto`}>
+      {header}
       <table className='min-w-full divide-y divide-slate-200 text-sm'>
         <thead className='bg-slate-50'>
           <tr>
@@ -194,8 +199,9 @@ function MatrixTable({ rows }: { rows: OverviewRow[] }) {
   );
 }
 
-// One department's weekly projected sales. Changing the total keeps the day split from Settings.
-function WeeklySalesEditor({
+// The bar above one department's table: its name, and the weekly projected sales box with its save button.
+// Changing the total keeps the day split from Settings.
+function DepartmentSalesBar({
   departmentName,
   weeklySalesDefault,
   isSaving,
@@ -208,7 +214,7 @@ function WeeklySalesEditor({
   saveError: string | undefined;
   onSave: (weeklySales: number) => Promise<unknown>;
 }) {
-  // The text the person is typing. Starts at the department's current weekly total.
+  // The text the person is typing. Starts at the department's saved weekly total.
   const [weeklySalesText, setWeeklySalesText] = useState(String(Math.round(weeklySalesDefault)));
   const [justSaved, setJustSaved] = useState(false);
   const typedWeeklySales = Number(weeklySalesText);
@@ -216,36 +222,39 @@ function WeeklySalesEditor({
   const hasChanged = isValidAmount && Math.round(typedWeeklySales) !== Math.round(weeklySalesDefault);
 
   return (
-    <div className='mb-2 flex flex-wrap items-end gap-3'>
-      <label className='block'>
-        <span className='text-sm font-medium text-slate-700'>{departmentName}: weekly projected sales</span>
+    <div className='flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3'>
+      <div>
+        <h3 className='text-sm font-semibold text-slate-900'>{departmentName}</h3>
+        <p className='text-xs text-slate-500'>Each day gets its share of this total from the day weights in Settings.</p>
+      </div>
+      <div className='flex flex-wrap items-center gap-2'>
+        <span className='text-xs font-medium text-slate-600'>Weekly projected sales</span>
         <input
-          className={`${fieldClass} mt-1 w-48 text-right`}
+          className={`${fieldClass} w-36 text-right`}
           type='number'
           min='0'
           step='100'
           inputMode='decimal'
+          aria-label={`${departmentName} weekly projected sales`}
           value={weeklySalesText}
           onChange={(changeEvent) => {
             setJustSaved(false);
             setWeeklySalesText(changeEvent.target.value);
           }}
         />
-      </label>
-      <button
-        className={secondaryButtonClass}
-        disabled={!hasChanged || isSaving}
-        onClick={() =>
-          onSave(typedWeeklySales).then(() => setJustSaved(true)).catch(() => undefined)
-        }
-      >
-        {isSaving ? "Saving…" : "Save sales"}
-      </button>
-      {saveError ? (
-        <span className='text-sm text-rose-600'>{saveError}</span>
-      ) : justSaved ? (
-        <span className='text-sm text-emerald-700'>Saved</span>
-      ) : null}
+        <button
+          className={secondaryButtonClass}
+          disabled={!hasChanged || isSaving}
+          onClick={() => onSave(typedWeeklySales).then(() => setJustSaved(true)).catch(() => undefined)}
+        >
+          {isSaving ? "Saving…" : "Save"}
+        </button>
+        {saveError ? (
+          <span className='text-sm text-rose-600'>{saveError}</span>
+        ) : justSaved ? (
+          <span className='text-sm text-emerald-700'>Saved</span>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -259,12 +268,12 @@ export function StoreOverviewScreen({
   onSaveDepartmentSales,
   onSaveStorePayroll,
 }: {
-  overview: (StoreOverview & { storePayrollPercent: number | null }) | null;
+  overview: OverviewData | null;
   storeName: string | undefined;
   loadError: string | null;
-  // Saves one department's weekly projected sales. The day split keeps the Settings weights.
+  // Saves one department's weekly projected sales, and shows the overview it sends back.
   onSaveDepartmentSales: (departmentId: number, weeklySales: number) => Promise<unknown>;
-  // Saves the store payroll target. Blank clears it.
+  // Saves the store payroll target, and shows the overview it sends back. Blank clears it.
   onSaveStorePayroll: (payrollPercentText: string) => Promise<unknown>;
 }) {
   // The store payroll target as typed. It starts at the saved value.
@@ -298,7 +307,7 @@ export function StoreOverviewScreen({
   const hasUnsavedPayroll =
     payrollPercentText !== null && parsePercent(payrollPercentText) !== overview.storePayrollPercent;
 
-  // Saves the store payroll target. The overview is reloaded by the page after it succeeds.
+  // Saves the store payroll target. The screen updates from the reply.
   const savePayroll = () => {
     setSavingPayroll(true);
     setPayrollError(null);
@@ -312,7 +321,7 @@ export function StoreOverviewScreen({
       .finally(() => setSavingPayroll(false));
   };
 
-  // Saves one department's weekly sales, and shows its error on that department's row.
+  // Saves one department's weekly sales, and shows its error on that department's bar.
   const saveDepartmentSales = (departmentId: number, weeklySales: number) => {
     setSavingDepartmentId(departmentId);
     setSaveErrors((currentErrors) => ({ ...currentErrors, [departmentId]: "" }));
@@ -329,77 +338,76 @@ export function StoreOverviewScreen({
       <Heading title={storeName ? `Store overview: ${storeName}` : "Store overview"}>
         Every department in the store, added together by day. Set the store payroll
         target to see whether total scheduled payroll is over or under it. Each
-        department's weekly sales can be changed above its table.
+        department's weekly projected sales can be changed in its table.
       </Heading>
 
       <h2 className='mb-2 mt-6 text-sm font-semibold text-slate-700'>Whole store</h2>
       <MatrixTable rows={storeTotalRows(overview.days, overview.totals)} />
 
       <h2 className='mb-2 mt-8 text-sm font-semibold text-slate-700'>Store payroll target</h2>
-      <div className={`${cardClass} p-4`}>
-        <div className='flex flex-wrap items-end gap-3'>
-          <label className='block'>
-            <span className='text-sm font-medium text-slate-700'>Payroll target for the whole store (%)</span>
-            <input
-              className={`${fieldClass} mt-1 w-40`}
-              type='number'
-              min='0'
-              max='100'
-              step='0.1'
-              inputMode='decimal'
-              placeholder='for example 12'
-              value={shownPayrollText}
-              onChange={(changeEvent) => {
-                setPayrollSaved(false);
-                setPayrollPercentText(changeEvent.target.value);
-              }}
-            />
-          </label>
-          <button
-            className={secondaryButtonClass}
-            disabled={!hasUnsavedPayroll || savingPayroll}
-            onClick={savePayroll}
-          >
-            {savingPayroll ? "Saving…" : "Save target"}
-          </button>
-          {payrollError ? (
-            <span className='text-sm text-rose-600'>{payrollError}</span>
-          ) : payrollSaved ? (
-            <span className='text-sm text-emerald-700'>Saved</span>
-          ) : null}
-        </div>
+      <div className='flex flex-wrap items-end gap-3'>
+        <label className='block'>
+          <span className='text-sm font-medium text-slate-700'>Payroll target for the whole store (%)</span>
+          <input
+            className={`${fieldClass} mt-1 w-40`}
+            type='number'
+            min='0'
+            max='100'
+            step='0.1'
+            inputMode='decimal'
+            placeholder='for example 12'
+            value={shownPayrollText}
+            onChange={(changeEvent) => {
+              setPayrollSaved(false);
+              setPayrollPercentText(changeEvent.target.value);
+            }}
+          />
+        </label>
+        <button
+          className={secondaryButtonClass}
+          disabled={!hasUnsavedPayroll || savingPayroll}
+          onClick={savePayroll}
+        >
+          {savingPayroll ? "Saving…" : "Save target"}
+        </button>
+        {payrollError ? (
+          <span className='text-sm text-rose-600'>{payrollError}</span>
+        ) : payrollSaved ? (
+          <span className='text-sm text-emerald-700'>Saved</span>
+        ) : null}
+      </div>
+      <div className='mt-3'>
         {payrollPercent === null ? (
-          <p className='mt-3 text-sm text-slate-500'>
+          <p className='text-sm text-slate-500'>
             Enter a payroll target and save it to see whether scheduled payroll is over or under it.
           </p>
         ) : (
-          <div className='mt-4'>
-            <MatrixTable rows={payrollCheckRows(overview.days, overview.totals, payrollPercent)} />
-          </div>
+          <MatrixTable rows={payrollCheckRows(overview.days, overview.totals, payrollPercent)} />
         )}
       </div>
 
       <h2 className='mb-2 mt-8 text-sm font-semibold text-slate-700'>By department</h2>
       <div className='space-y-6'>
-        {overview.departments.map((department) => (
-          <div key={department.departmentId}>
-            <h3 className='mb-2 text-sm font-semibold text-slate-900'>{department.departmentName}</h3>
-            <div className={`${cardClass} mb-3 p-4`}>
-              <WeeklySalesEditor
-                key={`${department.departmentId}-${Math.round(department.weeklySales)}`}
-                departmentName={department.departmentName}
-                weeklySalesDefault={department.weeklySales}
-                isSaving={savingDepartmentId === department.departmentId}
-                saveError={saveErrors[department.departmentId] || undefined}
-                onSave={(weeklySales) => saveDepartmentSales(department.departmentId, weeklySales)}
+        {overview.departments.map((department) => {
+          const departmentSales = department.days.reduce((running, dayRow) => running + dayRow.sales, 0);
+          return (
+            <div key={department.departmentId}>
+              <MatrixTable
+                rows={departmentRows(department.days)}
+                header={
+                  <DepartmentSalesBar
+                    key={`${department.departmentId}-${Math.round(department.weeklySales)}`}
+                    departmentName={department.departmentName}
+                    weeklySalesDefault={department.weeklySales || departmentSales}
+                    isSaving={savingDepartmentId === department.departmentId}
+                    saveError={saveErrors[department.departmentId] || undefined}
+                    onSave={(weeklySales) => saveDepartmentSales(department.departmentId, weeklySales)}
+                  />
+                }
               />
-              <p className='text-xs text-slate-500'>
-                Each day gets its share of this total from the day weights in Settings.
-              </p>
             </div>
-            <MatrixTable rows={departmentRows(department.days)} />
-          </div>
-        ))}
+          );
+        })}
       </div>
     </>
   );
