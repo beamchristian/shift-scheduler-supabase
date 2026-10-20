@@ -18,17 +18,14 @@ type OverviewRow = {
   totalFlag?: boolean;
 };
 
-// Projected sales typed in for each department, keyed by day number, as text while the person types.
-type SalesDraft = Record<number, string>;
-
 // Formats an hours figure with at most two decimals, for example "7.5".
 const formatHoursText = (hours: number) => String(roundTo2(hours));
 
 // Shows a figure over its allowance in a different color. A small margin avoids rounding noise.
 const isOver = (actual: number, allowed: number) => actual > allowed + 0.005;
 
-// Reads the payroll percent the person typed. Returns null when it is blank or not a usable number.
-function parsePayrollPercent(percentText: string): number | null {
+// Reads a percent the person typed. Returns null when it is blank or not a usable number.
+function parsePercent(percentText: string): number | null {
   if (percentText.trim() === "") return null;
   const percent = Number(percentText);
   return Number.isFinite(percent) && percent >= 0 ? percent : null;
@@ -85,8 +82,8 @@ function storeTotalRows(days: StoreDayTotals[], totals: StoreDayTotals): Overvie
   ];
 }
 
-// Builds the rows that compare the store's sales, at the typed payroll percent, with what is scheduled.
-// A positive difference means the schedule is under target.
+// Builds the rows that compare the store's sales, at the payroll percent, with what is scheduled.
+// A negative difference means scheduled payroll is over target.
 function payrollCheckRows(days: StoreDayTotals[], totals: StoreDayTotals, payrollPercent: number): OverviewRow[] {
   const targetFor = (salesDollars: number) => (salesDollars * payrollPercent) / 100;
   const differenceFor = (salesDollars: number, scheduledDollars: number) =>
@@ -119,6 +116,11 @@ function departmentRows(days: DayRow[]): OverviewRow[] {
   const totalSched = days.reduce((running, dayRow) => running + dayRow.sched, 0);
   const totalSchedCost = days.reduce((running, dayRow) => running + dayRow.schedCost, 0);
   return [
+    {
+      label: "Projected sales",
+      cells: days.map((dayRow) => formatMoney(dayRow.sales)),
+      total: formatMoney(days.reduce((running, dayRow) => running + dayRow.sales, 0)),
+    },
     {
       label: "Allowed hours",
       cells: days.map((dayRow) => formatHoursText(dayRow.allowed)),
@@ -192,86 +194,85 @@ function MatrixTable({ rows }: { rows: OverviewRow[] }) {
   );
 }
 
-// One department's projected sales, one input per day, with a save button once something is typed.
-function ProjectedSalesEditor({
+// One department's weekly projected sales. Changing the total keeps the day split from Settings.
+function WeeklySalesEditor({
   departmentName,
-  dailySales,
-  draft,
+  weeklySalesDefault,
   isSaving,
   saveError,
-  onChangeDay,
   onSave,
 }: {
   departmentName: string;
-  dailySales: DayRow[];
-  draft: SalesDraft | undefined;
+  weeklySalesDefault: number;
   isSaving: boolean;
   saveError: string | undefined;
-  onChangeDay: (dayNumber: number, dollarsText: string) => void;
-  onSave: () => void;
+  onSave: (weeklySales: number) => Promise<unknown>;
 }) {
-  const hasDraft = !!draft && Object.keys(draft).length > 0;
-  // Shows what the person typed, or the saved amount for any day they have not changed.
-  const shownValueFor = (dayRow: DayRow) =>
-    draft?.[dayRow.day] ?? String(Math.round(dayRow.sales));
-  const typedTotal = dailySales.reduce(
-    (running, dayRow) => running + (Number(shownValueFor(dayRow)) || 0),
-    0,
-  );
+  // The text the person is typing. Starts at the department's current weekly total.
+  const [weeklySalesText, setWeeklySalesText] = useState(String(Math.round(weeklySalesDefault)));
+  const [justSaved, setJustSaved] = useState(false);
+  const typedWeeklySales = Number(weeklySalesText);
+  const isValidAmount = weeklySalesText.trim() !== "" && Number.isFinite(typedWeeklySales) && typedWeeklySales >= 0;
+  const hasChanged = isValidAmount && Math.round(typedWeeklySales) !== Math.round(weeklySalesDefault);
+
   return (
-    <div className={`${cardClass} p-4`}>
-      <div className='mb-3 flex flex-wrap items-center justify-between gap-2'>
-        <h3 className='text-sm font-semibold text-slate-900'>{departmentName}: projected sales</h3>
-        <span className='text-xs text-slate-500'>Week total {formatMoney(typedTotal)}</span>
-      </div>
-      <div className='grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6'>
-        {dailySales.map((dayRow) => (
-          <label key={dayRow.day} className='block'>
-            <span className='text-xs font-medium text-slate-600'>{DAY_SHORT_LABELS[dayRow.day]}</span>
-            <input
-              className={`${fieldClass} mt-1 text-right`}
-              type='number'
-              min='0'
-              step='100'
-              inputMode='decimal'
-              value={shownValueFor(dayRow)}
-              onChange={(changeEvent) => onChangeDay(dayRow.day, changeEvent.target.value)}
-            />
-          </label>
-        ))}
-      </div>
-      <div className='mt-3 flex flex-wrap items-center gap-3'>
-        <button
-          className={secondaryButtonClass}
-          disabled={!hasDraft || isSaving}
-          onClick={onSave}
-        >
-          {isSaving ? "Saving…" : "Save projected sales"}
-        </button>
-        {saveError && <span className='text-sm text-rose-600'>{saveError}</span>}
-      </div>
+    <div className='mb-2 flex flex-wrap items-end gap-3'>
+      <label className='block'>
+        <span className='text-sm font-medium text-slate-700'>{departmentName}: weekly projected sales</span>
+        <input
+          className={`${fieldClass} mt-1 w-48 text-right`}
+          type='number'
+          min='0'
+          step='100'
+          inputMode='decimal'
+          value={weeklySalesText}
+          onChange={(changeEvent) => {
+            setJustSaved(false);
+            setWeeklySalesText(changeEvent.target.value);
+          }}
+        />
+      </label>
+      <button
+        className={secondaryButtonClass}
+        disabled={!hasChanged || isSaving}
+        onClick={() =>
+          onSave(typedWeeklySales).then(() => setJustSaved(true)).catch(() => undefined)
+        }
+      >
+        {isSaving ? "Saving…" : "Save sales"}
+      </button>
+      {saveError ? (
+        <span className='text-sm text-rose-600'>{saveError}</span>
+      ) : justSaved ? (
+        <span className='text-sm text-emerald-700'>Saved</span>
+      ) : null}
     </div>
   );
 }
 
-// The store overview screen: every department in the store added together by day, the store payroll check,
-// projected sales for each department, and each department's own figures.
+// The store overview screen: every department added together by day, the store payroll check,
+// and each department's own projected sales and figures.
 export function StoreOverviewScreen({
   overview,
   storeName,
   loadError,
   onSaveDepartmentSales,
+  onSaveStorePayroll,
 }: {
-  overview: StoreOverview | null;
+  overview: (StoreOverview & { storePayrollPercent: number | null }) | null;
   storeName: string | undefined;
   loadError: string | null;
-  // Saves one department's projected sales, keyed by day number. The page reloads the overview after it succeeds.
-  onSaveDepartmentSales: (departmentId: number, dailySales: Record<number, number>) => Promise<unknown>;
+  // Saves one department's weekly projected sales. The day split keeps the Settings weights.
+  onSaveDepartmentSales: (departmentId: number, weeklySales: number) => Promise<unknown>;
+  // Saves the store payroll target. Blank clears it.
+  onSaveStorePayroll: (payrollPercentText: string) => Promise<unknown>;
 }) {
-  // The payroll percent typed for the whole store. It is not saved; it only changes this comparison.
-  const [payrollPercentText, setPayrollPercentText] = useState("");
-  // Projected sales typed but not yet saved, and the save status, for each department.
-  const [salesDrafts, setSalesDrafts] = useState<Record<number, SalesDraft>>({});
+  // The store payroll target as typed. It starts at the saved value.
+  const [payrollPercentText, setPayrollPercentText] = useState<string | null>(null);
+  const [savingPayroll, setSavingPayroll] = useState(false);
+  const [payrollError, setPayrollError] = useState<string | null>(null);
+  const [payrollSaved, setPayrollSaved] = useState(false);
+  // Which department is being saved, and the last save error for each department.
   const [savingDepartmentId, setSavingDepartmentId] = useState<number | null>(null);
   const [saveErrors, setSaveErrors] = useState<Record<number, string>>({});
 
@@ -290,92 +291,92 @@ export function StoreOverviewScreen({
       </>
     );
 
-  const payrollPercent = parsePayrollPercent(payrollPercentText);
+  // What the box shows: what the person typed, or the saved target until they change it.
+  const shownPayrollText =
+    payrollPercentText ?? (overview.storePayrollPercent === null ? "" : String(overview.storePayrollPercent));
+  const payrollPercent = parsePercent(shownPayrollText);
+  const hasUnsavedPayroll =
+    payrollPercentText !== null && parsePercent(payrollPercentText) !== overview.storePayrollPercent;
 
-  // Records one typed day for a department, without saving yet.
-  const changeDraftDay = (departmentId: number, dayNumber: number, dollarsText: string) =>
-    setSalesDrafts((currentDrafts) => ({
-      ...currentDrafts,
-      [departmentId]: { ...currentDrafts[departmentId], [dayNumber]: dollarsText },
-    }));
+  // Saves the store payroll target. The overview is reloaded by the page after it succeeds.
+  const savePayroll = () => {
+    setSavingPayroll(true);
+    setPayrollError(null);
+    setPayrollSaved(false);
+    onSaveStorePayroll(shownPayrollText)
+      .then(() => {
+        setPayrollPercentText(null);
+        setPayrollSaved(true);
+      })
+      .catch((thrownError: Error) => setPayrollError(thrownError.message))
+      .finally(() => setSavingPayroll(false));
+  };
 
-  // Saves all of one department's days. Blank or invalid days are treated as zero.
-  const saveDepartmentSales = (departmentId: number, dailySales: DayRow[]) => {
-    const draft = salesDrafts[departmentId] ?? {};
-    const dollarsByDay: Record<number, number> = {};
-    for (const dayRow of dailySales) {
-      const typedText = draft[dayRow.day] ?? String(Math.round(dayRow.sales));
-      const dollars = Number(typedText);
-      dollarsByDay[dayRow.day] = Number.isFinite(dollars) && dollars >= 0 ? dollars : 0;
-    }
+  // Saves one department's weekly sales, and shows its error on that department's row.
+  const saveDepartmentSales = (departmentId: number, weeklySales: number) => {
     setSavingDepartmentId(departmentId);
     setSaveErrors((currentErrors) => ({ ...currentErrors, [departmentId]: "" }));
-    onSaveDepartmentSales(departmentId, dollarsByDay)
-      .then(() =>
-        setSalesDrafts((currentDrafts) => {
-          const remainingDrafts = { ...currentDrafts };
-          delete remainingDrafts[departmentId];
-          return remainingDrafts;
-        }),
-      )
-      .catch((thrownError: Error) =>
-        setSaveErrors((currentErrors) => ({ ...currentErrors, [departmentId]: thrownError.message })),
-      )
+    return onSaveDepartmentSales(departmentId, weeklySales)
+      .catch((thrownError: Error) => {
+        setSaveErrors((currentErrors) => ({ ...currentErrors, [departmentId]: thrownError.message }));
+        throw thrownError;
+      })
       .finally(() => setSavingDepartmentId(null));
   };
 
   return (
     <>
       <Heading title={storeName ? `Store overview: ${storeName}` : "Store overview"}>
-        Every department in the store, added together by day. Type a payroll
-        percent to see where the whole store stands. Projected sales for each
-        department can be changed below.
+        Every department in the store, added together by day. Set the store payroll
+        target to see whether total scheduled payroll is over or under it. Each
+        department's weekly sales can be changed above its table.
       </Heading>
 
       <h2 className='mb-2 mt-6 text-sm font-semibold text-slate-700'>Whole store</h2>
       <MatrixTable rows={storeTotalRows(overview.days, overview.totals)} />
 
-      <h2 className='mb-2 mt-8 text-sm font-semibold text-slate-700'>Store payroll check</h2>
+      <h2 className='mb-2 mt-8 text-sm font-semibold text-slate-700'>Store payroll target</h2>
       <div className={`${cardClass} p-4`}>
-        <label className='block max-w-xs'>
-          <span className='text-sm font-medium text-slate-700'>Store payroll target (%)</span>
-          <input
-            className={`${fieldClass} mt-1`}
-            type='number'
-            min='0'
-            step='0.1'
-            inputMode='decimal'
-            placeholder='for example 12'
-            value={payrollPercentText}
-            onChange={(changeEvent) => setPayrollPercentText(changeEvent.target.value)}
-          />
-        </label>
-        <p className='mt-2 text-xs text-slate-500'>
-          This isn't saved. It only changes this comparison.
-        </p>
-        {payrollPercent !== null && (
+        <div className='flex flex-wrap items-end gap-3'>
+          <label className='block'>
+            <span className='text-sm font-medium text-slate-700'>Payroll target for the whole store (%)</span>
+            <input
+              className={`${fieldClass} mt-1 w-40`}
+              type='number'
+              min='0'
+              max='100'
+              step='0.1'
+              inputMode='decimal'
+              placeholder='for example 12'
+              value={shownPayrollText}
+              onChange={(changeEvent) => {
+                setPayrollSaved(false);
+                setPayrollPercentText(changeEvent.target.value);
+              }}
+            />
+          </label>
+          <button
+            className={secondaryButtonClass}
+            disabled={!hasUnsavedPayroll || savingPayroll}
+            onClick={savePayroll}
+          >
+            {savingPayroll ? "Saving…" : "Save target"}
+          </button>
+          {payrollError ? (
+            <span className='text-sm text-rose-600'>{payrollError}</span>
+          ) : payrollSaved ? (
+            <span className='text-sm text-emerald-700'>Saved</span>
+          ) : null}
+        </div>
+        {payrollPercent === null ? (
+          <p className='mt-3 text-sm text-slate-500'>
+            Enter a payroll target and save it to see whether scheduled payroll is over or under it.
+          </p>
+        ) : (
           <div className='mt-4'>
             <MatrixTable rows={payrollCheckRows(overview.days, overview.totals, payrollPercent)} />
           </div>
         )}
-      </div>
-
-      <h2 className='mb-2 mt-8 text-sm font-semibold text-slate-700'>Projected sales by department</h2>
-      <div className='space-y-4'>
-        {overview.departments.map((department) => (
-          <ProjectedSalesEditor
-            key={department.departmentId}
-            departmentName={department.departmentName}
-            dailySales={department.days}
-            draft={salesDrafts[department.departmentId]}
-            isSaving={savingDepartmentId === department.departmentId}
-            saveError={saveErrors[department.departmentId] || undefined}
-            onChangeDay={(dayNumber, dollarsText) =>
-              changeDraftDay(department.departmentId, dayNumber, dollarsText)
-            }
-            onSave={() => saveDepartmentSales(department.departmentId, department.days)}
-          />
-        ))}
       </div>
 
       <h2 className='mb-2 mt-8 text-sm font-semibold text-slate-700'>By department</h2>
@@ -383,6 +384,19 @@ export function StoreOverviewScreen({
         {overview.departments.map((department) => (
           <div key={department.departmentId}>
             <h3 className='mb-2 text-sm font-semibold text-slate-900'>{department.departmentName}</h3>
+            <div className={`${cardClass} mb-3 p-4`}>
+              <WeeklySalesEditor
+                key={`${department.departmentId}-${Math.round(department.weeklySales)}`}
+                departmentName={department.departmentName}
+                weeklySalesDefault={department.weeklySales}
+                isSaving={savingDepartmentId === department.departmentId}
+                saveError={saveErrors[department.departmentId] || undefined}
+                onSave={(weeklySales) => saveDepartmentSales(department.departmentId, weeklySales)}
+              />
+              <p className='text-xs text-slate-500'>
+                Each day gets its share of this total from the day weights in Settings.
+              </p>
+            </div>
             <MatrixTable rows={departmentRows(department.days)} />
           </div>
         ))}

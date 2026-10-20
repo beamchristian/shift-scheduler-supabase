@@ -25,7 +25,7 @@ import { visibleTabsFor } from "../components/types";
 type TeamReply = { members: AccessMember[]; canManage: boolean };
 
 // The reply from the store overview endpoint: the store's name, plus the combined figures.
-type StoreOverviewReply = StoreOverview & { storeName: string };
+type StoreOverviewReply = StoreOverview & { storeName: string; storePayrollPercent: number | null };
 
 // The reply from the swap-closers endpoint: the new data, whether the swap worked, and a message to show.
 type SwapReply = Snapshot & { ok: boolean; message: string };
@@ -142,9 +142,12 @@ export default function Page() {
   useEffect(() => {
     if (currentTab === "Store overview") loadStoreOverview();
   }, [currentTab]);
-  // Saves one department's projected sales, then reloads the overview. A failed save is thrown back to the screen.
-  const saveDepartmentSales = (departmentId: number, dailySales: Record<number, number>) =>
-    callApi("/api/store-overview/sales", { departmentId, dailySales }).then(() => loadStoreOverview());
+  // Saves one department's weekly sales, then reloads the overview. A failed save is thrown back to the screen.
+  const saveDepartmentSales = (departmentId: number, weeklySales: number) =>
+    callApi("/api/store-overview/sales", { departmentId, weeklySales }).then(() => loadStoreOverview());
+  // Saves the store payroll target, then reloads the overview. Blank clears it.
+  const saveStorePayroll = (payrollPercentText: string) =>
+    callApi("/api/store-overview/payroll", { payrollPercent: payrollPercentText }).then(() => loadStoreOverview());
 
   // Signs out and returns to the sign-in page.
   const signOut = () =>
@@ -349,6 +352,7 @@ export default function Page() {
             storeName={currentUser?.storeName}
             loadError={storeOverviewError}
             onSaveDepartmentSales={saveDepartmentSales}
+            onSaveStorePayroll={saveStorePayroll}
           />
         )}
       </main>

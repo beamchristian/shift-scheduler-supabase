@@ -29,11 +29,17 @@ export async function GET(request: Request) {
       departmentReports.push({
         departmentId: departmentRow.id,
         departmentName: departmentRow.name,
+        weeklySales: Number(departmentData.settings.weekly_sales),
         report: buildReport(departmentData),
       });
     }
+    const storeRows = await runQuery<{ target_payroll_pct: number | null }>(
+      "select target_payroll_pct from stores where id = $1",
+      [caller.storeId],
+    );
     return NextResponse.json({
       storeName: caller.storeName,
+      storePayrollPercent: storeRows[0]?.target_payroll_pct ?? null,
       ...buildStoreOverview(departmentReports),
     });
   } catch (thrownError) {

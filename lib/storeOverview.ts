@@ -4,6 +4,8 @@ import type { DayRow, Report } from "./report";
 export interface DepartmentReport {
   departmentId: number;
   departmentName: string;
+  // The weekly forecast saved on the Schedule screen for this department.
+  weeklySales: number;
   report: Report;
 }
 
@@ -23,6 +25,8 @@ export interface StoreDayTotals {
 export interface DepartmentBreakdown {
   departmentId: number;
   departmentName: string;
+  // The weekly forecast saved on the Schedule screen.
+  weeklySales: number;
   days: DayRow[];
   rate: number;
 }
@@ -95,24 +99,12 @@ export function buildStoreOverview(departmentReports: DepartmentReport[]): Store
   return {
     days,
     totals,
-    departments: departmentReports.map(({ departmentId, departmentName, report }) => ({
+    departments: departmentReports.map(({ departmentId, departmentName, weeklySales, report }) => ({
       departmentId,
       departmentName,
+      weeklySales,
       days: report.days,
       rate: report.rate,
     })),
   };
-}
-
-// Turns the typed day dollars into the department's week forecast and day weights.
-// Each day's weight is its share of the week, in percent, so the day's sales come back out exactly.
-export function weightsFromDailySales(dailySales: Record<number, number>): {
-  weeklySales: number;
-  dayWeights: Record<number, number>;
-} {
-  const weeklySales = Object.values(dailySales).reduce((runningTotal, dayDollars) => runningTotal + dayDollars, 0);
-  const dayWeights: Record<number, number> = {};
-  for (const [dayNumber, dayDollars] of Object.entries(dailySales))
-    dayWeights[Number(dayNumber)] = weeklySales > 0 ? (dayDollars * 100) / weeklySales : 0;
-  return { weeklySales, dayWeights };
 }
