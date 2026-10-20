@@ -58,7 +58,9 @@ export function ScheduleScreen({
   const weeklySales = Number(data.settings.weekly_sales);
   const isOverBudget = requiredTotal > allowedTotal;
   // Full-coverage cost as a share of the forecast.
-  const requiredCostPercent = weeklySales ? (requiredCost / weeklySales) * 100 : 0;
+  const requiredCostPercent = weeklySales
+    ? (requiredCost / weeklySales) * 100
+    : 0;
   const coverageNotes = buildCoverageNotes(data, report);
 
   // Counts the unfilled shifts by name, so "Mon Opener x2" can be shown.
@@ -71,7 +73,9 @@ export function ScheduleScreen({
   const costSubtitle = `${report.showAlt ? `${formatMoney(totals.reqCostAlt)} ${alternateLabel}, ` : ""}at $${rate.toFixed(2)}/hr average`;
   const scheduledSubtitle = [
     `${roundTo2(scheduledHoursTotal)} hrs`,
-    totalSales ? `${((scheduledCost / totalSales) * 100).toFixed(1)}% of sales` : "",
+    totalSales
+      ? `${((scheduledCost / totalSales) * 100).toFixed(1)}% of sales`
+      : "",
     report.showAlt
       ? `${formatMoney(totals.schedCostAlt)} ${alternateLabel}${totalSales ? ` (${((totals.schedCostAlt / totalSales) * 100).toFixed(1)}%)` : ""}`
       : "",
@@ -86,7 +90,9 @@ export function ScheduleScreen({
         generate.
       </Heading>
 
-      <div className={`${cardClass} mb-4 flex flex-col gap-3 p-4 sm:flex-row sm:items-end sm:justify-between`}>
+      <div
+        className={`${cardClass} mb-4 flex flex-col gap-3 p-4 sm:flex-row sm:items-end sm:justify-between`}
+      >
         <label className='block'>
           <span className='text-sm font-medium text-slate-700'>
             Forecast sales for this week
@@ -130,14 +136,22 @@ export function ScheduleScreen({
           sub={`${report.showAlt ? `${roundTo2(totals.reqAlt)} ${alternateLabel}, ` : ""}${roundTo2(allowedTotal)} allowed`}
           isWarning={isOverBudget}
         />
-        <StatTile label='Cost to fully staff' value={formatMoney(requiredCost)} sub={costSubtitle} />
+        <StatTile
+          label='Cost to fully staff'
+          value={formatMoney(requiredCost)}
+          sub={costSubtitle}
+        />
         <StatTile
           label='Share of forecast'
           value={`${requiredCostPercent.toFixed(1)}%`}
           sub={`target ${payrollPercent}%`}
           isWarning={requiredCostPercent > payrollPercent}
         />
-        <StatTile label='Scheduled so far' value={formatMoney(scheduledCost)} sub={scheduledSubtitle} />
+        <StatTile
+          label='Scheduled so far'
+          value={formatMoney(scheduledCost)}
+          sub={scheduledSubtitle}
+        />
       </div>
 
       <div className='mb-4 space-y-2'>
@@ -146,7 +160,9 @@ export function ScheduleScreen({
             Full coverage is {roundTo2(requiredTotal - allowedTotal)} hrs over
             budget. At {payrollPercent}% payroll you would need about $
             {payrollPercent > 0
-              ? Math.ceil(requiredCost / (payrollPercent / 100)).toLocaleString()
+              ? Math.ceil(
+                  requiredCost / (payrollPercent / 100),
+                ).toLocaleString()
               : 0}{" "}
             in weekly sales to afford it, or raise the payroll target to{" "}
             {requiredCostPercent.toFixed(1)}%.
@@ -178,10 +194,13 @@ export function ScheduleScreen({
             <Callout tone='warn'>
               Even with no payroll limit, your team cannot cover:{" "}
               {Object.entries(unfilledCounts)
-                .map(([shiftName, count]) => `${shiftName}${count > 1 ? ` x${count}` : ""}`)
+                .map(
+                  ([shiftName, count]) =>
+                    `${shiftName}${count > 1 ? ` x${count}` : ""}`,
+                )
                 .join(", ")}
-              . Your team can cover {staffingCheck.capacity} of the {staffingCheck.needed}{" "}
-              required shifts.
+              . Your team can cover {staffingCheck.capacity} of the{" "}
+              {staffingCheck.needed} required shifts.
             </Callout>
           ))}
         {staffingCheck && staffingCheck.underMin.length > 0 && (
@@ -193,11 +212,15 @@ export function ScheduleScreen({
 
       {staffingCheck && staffingCheck.suggestions.length > 0 && (
         <div className={`${cardClass} mb-4 p-4`}>
-          <h2 className='text-sm font-semibold text-slate-900'>Ways to fix it</h2>
+          <h2 className='text-sm font-semibold text-slate-900'>
+            Ways to fix it
+          </h2>
           <ul className='mt-2 divide-y divide-slate-100'>
             {staffingCheck.suggestions.map((suggestion, suggestionIndex) => (
               <li key={suggestionIndex} className='py-2.5 text-sm'>
-                <span className='font-semibold text-slate-900'>{suggestion.title}.</span>{" "}
+                <span className='font-semibold text-slate-900'>
+                  {suggestion.title}.
+                </span>{" "}
                 <span className='text-slate-600'>{suggestion.detail}</span>
               </li>
             ))}
@@ -234,8 +257,23 @@ export function ScheduleScreen({
       {editingShift && (
         <ShiftEditor
           shift={editingShift}
-          personName={data.employees.find((person) => person.id === editingShift.employee_id)?.name ?? "Unknown"}
-          dayName={["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][editingShift.day] ?? ""}
+          personName={
+            data.employees.find(
+              (person) => person.id === editingShift.employee_id,
+            )?.name ?? "Unknown"
+          }
+          dayName={
+            [
+              "",
+              "Monday",
+              "Tuesday",
+              "Wednesday",
+              "Thursday",
+              "Friday",
+              "Saturday",
+              "Sunday",
+            ][editingShift.day] ?? ""
+          }
           onClose={() => setEditingShift(null)}
           onSaved={(reply) => {
             setSavedShiftWarnings(reply.warnings);
@@ -246,7 +284,9 @@ export function ScheduleScreen({
       )}
       <LaborMatrix report={report} />
 
-      <h2 className='mb-2 mt-8 text-sm font-semibold text-slate-700'>Schedule</h2>
+      <h2 className='mb-2 mt-8 text-sm font-semibold text-slate-700'>
+        Schedule
+      </h2>
       {data.schedule.length === 0 && (
         <div className={`${cardClass} p-8 text-center text-sm text-slate-500`}>
           No schedule yet. Click Generate schedule to build one.

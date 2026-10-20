@@ -17,17 +17,18 @@ export function RecentChanges() {
       .catch((thrownError: Error) => setLoadError(thrownError.message));
   }, []);
 
-  if (loadError)
-    return (
-      <Callout tone='warn'>{loadError}</Callout>
-    );
+  if (loadError) return <Callout tone='warn'>{loadError}</Callout>;
 
   if (entries === null)
-    return <div className={`${cardClass} p-4 text-sm text-slate-500`}>Loading…</div>;
+    return (
+      <div className={`${cardClass} p-4 text-sm text-slate-500`}>Loading…</div>
+    );
 
   if (entries.length === 0)
     return (
-      <div className={`${cardClass} p-4 text-sm text-slate-500`}>No changes yet.</div>
+      <div className={`${cardClass} p-4 text-sm text-slate-500`}>
+        No changes yet.
+      </div>
     );
 
   return (
@@ -38,7 +39,10 @@ export function RecentChanges() {
             <div className='text-sm font-medium text-slate-900'>
               {entry.action}
               {entry.detail && (
-                <span className='font-normal text-slate-600'> · {entry.detail}</span>
+                <span className='font-normal text-slate-600'>
+                  {" "}
+                  · {entry.detail}
+                </span>
               )}
             </div>
             <div className='text-xs text-slate-500'>

@@ -130,16 +130,21 @@ export default function Page() {
   useEffect(() => {
     if (currentTab === "Access") requestTeam();
   }, [currentTab]);
-  // Loads the store overview each time its screen opens, so the figures are current.
-  useEffect(() => {
-    if (currentTab !== "Store overview") return;
+  // Loads the store overview. Errors are shown on the screen instead of being thrown.
+  const loadStoreOverview = () =>
     callApi<StoreOverviewReply>("/api/store-overview")
       .then((overviewReply) => {
         setStoreOverview(overviewReply);
         setStoreOverviewError(null);
       })
       .catch((thrownError: Error) => setStoreOverviewError(thrownError.message));
+  // Loads the store overview each time its screen opens, so the figures are current.
+  useEffect(() => {
+    if (currentTab === "Store overview") loadStoreOverview();
   }, [currentTab]);
+  // Saves one department's projected sales, then reloads the overview. A failed save is thrown back to the screen.
+  const saveDepartmentSales = (departmentId: number, dailySales: Record<number, number>) =>
+    callApi("/api/store-overview/sales", { departmentId, dailySales }).then(() => loadStoreOverview());
 
   // Signs out and returns to the sign-in page.
   const signOut = () =>
@@ -343,6 +348,7 @@ export default function Page() {
             overview={storeOverview}
             storeName={currentUser?.storeName}
             loadError={storeOverviewError}
+            onSaveDepartmentSales={saveDepartmentSales}
           />
         )}
       </main>

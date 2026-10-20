@@ -33,12 +33,15 @@ export function ScheduleGrid({
 
   // Looks up a person's name from their id.
   const employeeNameFor = (employeeId: number) =>
-    data.employees.find((employee) => employee.id === employeeId)?.name ?? "Unknown";
+    data.employees.find((employee) => employee.id === employeeId)?.name ??
+    "Unknown";
 
   // Counts how many of this person's shifts run to closing time (or later).
   const countClosingShifts = (employeeId: number) =>
     data.schedule.filter((shift) => {
-      const storeHour = data.store_hours.find((hourRow) => hourRow.day === shift.day);
+      const storeHour = data.store_hours.find(
+        (hourRow) => hourRow.day === shift.day,
+      );
       return (
         shift.employee_id === employeeId &&
         !!storeHour &&
@@ -102,12 +105,15 @@ export function ScheduleGrid({
               const hours = reportRow ? reportRow.hours : 0;
               const altHours = reportRow ? reportRow.alt : 0;
               // Hours outside the person's min and max are highlighted in amber.
-              const isOffTarget = hours < employee.min_hours || hours > employee.max_hours;
+              const isOffTarget =
+                hours < employee.min_hours || hours > employee.max_hours;
               const closingCount = countClosingShifts(employee.id);
               return (
                 <tr key={employee.id} className='align-top'>
                   <td className='whitespace-nowrap px-3 py-2.5'>
-                    <div className='font-medium text-slate-900'>{employee.name}</div>
+                    <div className='font-medium text-slate-900'>
+                      {employee.name}
+                    </div>
                     <div className='text-xs text-slate-500'>
                       <span className='mr-1 rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600'>
                         {employee.type}
@@ -130,7 +136,8 @@ export function ScheduleGrid({
                             >
                               <div className='font-semibold'>{shift.name}</div>
                               <div>
-                                {formatTime12(shift.start, true)}–{formatTime12(shift.end, true)}
+                                {formatTime12(shift.start, true)}–
+                                {formatTime12(shift.end, true)}
                               </div>
                             </button>
                           ))}
@@ -170,7 +177,8 @@ export function ScheduleGrid({
             .filter((shift) => shift.day === dayRow.day)
             .sort(
               (firstShift, secondShift) =>
-                minutesOfDay(firstShift.start) - minutesOfDay(secondShift.start) ||
+                minutesOfDay(firstShift.start) -
+                  minutesOfDay(secondShift.start) ||
                 firstShift.name.localeCompare(secondShift.name),
             );
           return (
@@ -190,13 +198,16 @@ export function ScheduleGrid({
                     className={`text-xs ${dayRow.sched > dayRow.allowed ? "font-semibold text-amber-600" : "text-slate-500"}`}
                   >
                     {roundTo2(dayRow.sched)} of {roundTo2(dayRow.allowed)} hrs
-                    {report.showAlt && ` (${roundTo2(dayRow.schedAlt)} ${altLabel})`}
+                    {report.showAlt &&
+                      ` (${roundTo2(dayRow.schedAlt)} ${altLabel})`}
                   </span>
                 </div>
               </div>
               <ul className='divide-y divide-slate-100'>
                 {dayShifts.length === 0 && (
-                  <li className='px-4 py-3 text-sm text-slate-400'>No shifts</li>
+                  <li className='px-4 py-3 text-sm text-slate-400'>
+                    No shifts
+                  </li>
                 )}
                 {dayShifts.map((shift) => (
                   <li

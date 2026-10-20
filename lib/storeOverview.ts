@@ -103,3 +103,16 @@ export function buildStoreOverview(departmentReports: DepartmentReport[]): Store
     })),
   };
 }
+
+// Turns the typed day dollars into the department's week forecast and day weights.
+// Each day's weight is its share of the week, in percent, so the day's sales come back out exactly.
+export function weightsFromDailySales(dailySales: Record<number, number>): {
+  weeklySales: number;
+  dayWeights: Record<number, number>;
+} {
+  const weeklySales = Object.values(dailySales).reduce((runningTotal, dayDollars) => runningTotal + dayDollars, 0);
+  const dayWeights: Record<number, number> = {};
+  for (const [dayNumber, dayDollars] of Object.entries(dailySales))
+    dayWeights[Number(dayNumber)] = weeklySales > 0 ? (dayDollars * 100) / weeklySales : 0;
+  return { weeklySales, dayWeights };
+}

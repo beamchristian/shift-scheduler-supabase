@@ -13,7 +13,8 @@ export function DeleteStoreCard({ storeName }: { storeName: string }) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const nameMatches = typedName.trim().toLowerCase() === storeName.trim().toLowerCase();
+  const nameMatches =
+    typedName.trim().toLowerCase() === storeName.trim().toLowerCase();
   const canDelete = nameMatches && isAcknowledged && !isDeleting;
 
   // Asks for a final confirmation, then deletes the store and reloads on another store.
@@ -26,7 +27,10 @@ export function DeleteStoreCard({ storeName }: { storeName: string }) {
       return;
     setIsDeleting(true);
     setDeleteError(null);
-    callApi("/api/stores/remove", { confirmName: typedName, acknowledged: isAcknowledged })
+    callApi("/api/stores/remove", {
+      confirmName: typedName,
+      acknowledged: isAcknowledged,
+    })
       .then(() => window.location.reload())
       .catch((thrownError: Error) => {
         setDeleteError(thrownError.message);
@@ -37,8 +41,9 @@ export function DeleteStoreCard({ storeName }: { storeName: string }) {
   return (
     <div className={`${cardClass} space-y-3 border-rose-200 p-4`}>
       <Callout tone='warn'>
-        Deleting {storeName} removes all of its departments, store managers, team members, schedules,
-        shift templates, settings, store hours, and change history. This cannot be undone.
+        Deleting {storeName} removes all of its departments, store managers,
+        team members, schedules, shift templates, settings, store hours, and
+        change history. This cannot be undone.
       </Callout>
       <label className='block'>
         <span className='text-sm font-medium text-slate-700'>
@@ -56,9 +61,14 @@ export function DeleteStoreCard({ storeName }: { storeName: string }) {
           type='checkbox'
           className='mt-0.5'
           checked={isAcknowledged}
-          onChange={(changeEvent) => setIsAcknowledged(changeEvent.target.checked)}
+          onChange={(changeEvent) =>
+            setIsAcknowledged(changeEvent.target.checked)
+          }
         />
-        <span>I understand this store and everything in it will be permanently deleted.</span>
+        <span>
+          I understand this store and everything in it will be permanently
+          deleted.
+        </span>
       </label>
       <div className='flex justify-end'>
         <button

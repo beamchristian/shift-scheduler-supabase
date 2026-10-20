@@ -1,5 +1,10 @@
 import type { Snapshot } from "../../lib/types";
-import { DAY_SHORT_LABELS, WORK_DAYS, asTableRows, splitCommaList } from "../../lib/ui/format";
+import {
+  DAY_SHORT_LABELS,
+  WORK_DAYS,
+  asTableRows,
+  splitCommaList,
+} from "../../lib/ui/format";
 import { EditableTable } from "../EditableTable/EditableTable";
 import type { ColumnDefinition, TableRow } from "../types";
 import { Heading } from "../ui/Heading";
@@ -21,7 +26,8 @@ const buildShiftColumns = (skillChoices: string[]): ColumnDefinition[] => [
     key: "skill",
     label: "Required skill",
     options: skillChoices,
-    formatOption: (skillValue) => (skillValue === "" ? "None" : String(skillValue)),
+    formatOption: (skillValue) =>
+      skillValue === "" ? "None" : String(skillValue),
   },
   { key: "only_for", label: "Only these people (blank = anyone)" },
 ];
@@ -43,7 +49,9 @@ export function ShiftsScreen({
   // The skill choices are the skills people are tagged with on the Team page, with a blank choice first.
   const teamSkillChoices = [
     "",
-    ...Array.from(new Set(employees.flatMap((employee) => splitCommaList(employee.skills)))).sort(),
+    ...Array.from(
+      new Set(employees.flatMap((employee) => splitCommaList(employee.skills))),
+    ).sort(),
   ];
 
   return (

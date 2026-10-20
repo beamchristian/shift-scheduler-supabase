@@ -6,7 +6,9 @@ import { Heading } from "../ui/Heading";
 
 // Columns of the employee table. Each key is a column in the employees table.
 // The skills column shows chips, and offers every skill already on the team or required by a shift.
-const buildEmployeeColumns = (suggestedSkills: string[]): ColumnDefinition[] => [
+const buildEmployeeColumns = (
+  suggestedSkills: string[],
+): ColumnDefinition[] => [
   { key: "name", label: "Name" },
   { key: "position", label: "Position" },
   { key: "type", label: "Type", options: ["FT", "PT"] },
@@ -20,7 +22,11 @@ const buildEmployeeColumns = (suggestedSkills: string[]): ColumnDefinition[] => 
     suggestions: suggestedSkills,
   },
   { key: "shifts", label: "Only these shift types (blank = all)" },
-  { key: "max_closes", label: "Max closes / wk (blank = default)", inputType: "number" },
+  {
+    key: "max_closes",
+    label: "Max closes / wk (blank = default)",
+    inputType: "number",
+  },
 ];
 
 // The Team screen: the employee list, with notes on skills and shift types.
@@ -41,7 +47,9 @@ export function TeamScreen({
   const suggestedSkills = Array.from(
     new Set([
       ...employees.flatMap((employee) => splitCommaList(employee.skills)),
-      ...shiftTemplates.flatMap((shiftTemplate) => splitCommaList(shiftTemplate.skill)),
+      ...shiftTemplates.flatMap((shiftTemplate) =>
+        splitCommaList(shiftTemplate.skill),
+      ),
     ]),
   ).sort();
 

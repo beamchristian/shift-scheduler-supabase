@@ -26,13 +26,20 @@ export function StoreManagersCard() {
   const loadStoreManagers = () => {
     fetch("/api/store-managers")
       .then((response) => response.json())
-      .then((body: { storeName?: string; storeManagers?: StoreManager[]; canManage?: boolean; error?: string }) => {
-        if (body.error) throw new Error(body.error);
-        setStoreName(body.storeName ?? "");
-        setStoreManagers(body.storeManagers ?? []);
-        setCanManage(Boolean(body.canManage));
-        setLoadError(null);
-      })
+      .then(
+        (body: {
+          storeName?: string;
+          storeManagers?: StoreManager[];
+          canManage?: boolean;
+          error?: string;
+        }) => {
+          if (body.error) throw new Error(body.error);
+          setStoreName(body.storeName ?? "");
+          setStoreManagers(body.storeManagers ?? []);
+          setCanManage(Boolean(body.canManage));
+          setLoadError(null);
+        },
+      )
       .catch((thrownError: Error) => setLoadError(thrownError.message));
   };
 
@@ -58,8 +65,9 @@ export function StoreManagersCard() {
     <div className={`${cardClass} space-y-3 p-4`}>
       <p className='text-sm text-slate-600'>
         {storeName ? `Store managers for ${storeName}. ` : ""}
-        Store managers can manage every department in the store, including who has access to them.
-        Only company admins can add, edit, or remove store managers.
+        Store managers can manage every department in the store, including who
+        has access to them. Only company admins can add, edit, or remove store
+        managers.
       </p>
       {loadError && <Callout tone='warn'>{loadError}</Callout>}
       {canManage && (
@@ -76,7 +84,11 @@ export function StoreManagersCard() {
           </label>
           <button
             className={primaryButtonClass}
-            onClick={() => changeStoreManagers({ action: "add", email: newEmail }).catch(() => undefined)}
+            onClick={() =>
+              changeStoreManagers({ action: "add", email: newEmail }).catch(
+                () => undefined,
+              )
+            }
             disabled={isChanging || !newEmail.trim()}
           >
             Add store manager
@@ -89,7 +101,10 @@ export function StoreManagersCard() {
       ) : (
         <ul className='divide-y divide-slate-100'>
           {storeManagers.map((storeManager) => (
-            <li key={storeManager.id} className='flex flex-wrap items-center justify-between gap-3 py-2 text-sm'>
+            <li
+              key={storeManager.id}
+              className='flex flex-wrap items-center justify-between gap-3 py-2 text-sm'
+            >
               <span className='text-slate-900'>{storeManager.email}</span>
               {canManage && (
                 <div className='flex items-center gap-3'>
@@ -97,13 +112,20 @@ export function StoreManagersCard() {
                     value={storeManager.email}
                     disabled={isChanging}
                     onSave={(editedEmail) =>
-                      changeStoreManagers({ action: "update", id: storeManager.id, email: editedEmail })
+                      changeStoreManagers({
+                        action: "update",
+                        id: storeManager.id,
+                        email: editedEmail,
+                      })
                     }
                   />
                   <button
                     className='rounded-lg px-3 py-1.5 text-sm font-medium text-rose-700 hover:bg-rose-50'
                     onClick={() =>
-                      changeStoreManagers({ action: "remove", id: storeManager.id }).catch(() => undefined)
+                      changeStoreManagers({
+                        action: "remove",
+                        id: storeManager.id,
+                      }).catch(() => undefined)
                     }
                     disabled={isChanging}
                   >

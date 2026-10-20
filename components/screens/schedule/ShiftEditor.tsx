@@ -2,7 +2,12 @@
 import { useEffect, useState } from "react";
 import type { ScheduleRow, Snapshot } from "../../../lib/types";
 import { callApi, formatTime12 } from "../../../lib/ui/format";
-import { cardClass, fieldClass, primaryButtonClass, secondaryButtonClass } from "../../../lib/ui/styles";
+import {
+  cardClass,
+  fieldClass,
+  primaryButtonClass,
+  secondaryButtonClass,
+} from "../../../lib/ui/styles";
 import { Callout } from "../../ui/Callout";
 
 // What the server says about a proposed change: errors stop it, warnings are shown but don't.
@@ -45,8 +50,12 @@ export function ShiftEditor({
         end: endTime,
         dryRun: true,
       })
-        .then((reply) => setCheck({ errors: reply.errors, warnings: reply.warnings }))
-        .catch((thrownError: Error) => setCheck({ errors: [thrownError.message], warnings: [] }))
+        .then((reply) =>
+          setCheck({ errors: reply.errors, warnings: reply.warnings }),
+        )
+        .catch((thrownError: Error) =>
+          setCheck({ errors: [thrownError.message], warnings: [] }),
+        )
         .finally(() => setIsChecking(false));
     }, 300);
     return () => clearTimeout(timer);
@@ -54,7 +63,13 @@ export function ShiftEditor({
 
   const hasChanged = startTime !== shift.start || endTime !== shift.end;
   const hasErrors = !!check && check.errors.length > 0;
-  const canSave = hasChanged && !!startTime && !!endTime && !hasErrors && !isChecking && !isSaving;
+  const canSave =
+    hasChanged &&
+    !!startTime &&
+    !!endTime &&
+    !hasErrors &&
+    !isChecking &&
+    !isSaving;
 
   // Saves the new times. The page shows the updated schedule and any warnings.
   const save = () => {
@@ -120,7 +135,9 @@ export function ShiftEditor({
         )}
         {check && check.warnings.length > 0 && (
           <Callout tone='warn'>
-            <div className='mb-1 font-semibold'>You can still save this, but check:</div>
+            <div className='mb-1 font-semibold'>
+              You can still save this, but check:
+            </div>
             <ul className='list-disc space-y-1 pl-5'>
               {check.warnings.map((warningText) => (
                 <li key={warningText}>{warningText}</li>
@@ -128,18 +145,31 @@ export function ShiftEditor({
             </ul>
           </Callout>
         )}
-        {check && check.errors.length === 0 && check.warnings.length === 0 && hasChanged && (
-          <Callout tone='ok'>No problems with this change.</Callout>
-        )}
+        {check &&
+          check.errors.length === 0 &&
+          check.warnings.length === 0 &&
+          hasChanged && (
+            <Callout tone='ok'>No problems with this change.</Callout>
+          )}
         {saveError && <Callout tone='warn'>{saveError}</Callout>}
 
         <div className='flex items-center justify-between gap-3'>
-          <span className='text-xs text-slate-500'>{isChecking ? "Checking…" : ""}</span>
+          <span className='text-xs text-slate-500'>
+            {isChecking ? "Checking…" : ""}
+          </span>
           <div className='flex gap-2'>
-            <button className={secondaryButtonClass} onClick={onClose} disabled={isSaving}>
+            <button
+              className={secondaryButtonClass}
+              onClick={onClose}
+              disabled={isSaving}
+            >
               Cancel
             </button>
-            <button className={primaryButtonClass} onClick={save} disabled={!canSave}>
+            <button
+              className={primaryButtonClass}
+              onClick={save}
+              disabled={!canSave}
+            >
               {isSaving ? "Saving…" : "Save shift"}
             </button>
           </div>

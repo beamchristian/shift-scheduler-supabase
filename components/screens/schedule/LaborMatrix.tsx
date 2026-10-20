@@ -1,5 +1,9 @@
 import type { Report } from "../../../lib/report";
-import { DAY_SHORT_LABELS, formatMoney, roundTo2 } from "../../../lib/ui/format";
+import {
+  DAY_SHORT_LABELS,
+  formatMoney,
+  roundTo2,
+} from "../../../lib/ui/format";
 import { cardClass } from "../../../lib/ui/styles";
 
 // One value in the matrix. Warning values are shown in amber.
@@ -19,7 +23,9 @@ export function LaborMatrix({ report }: { report: Report }) {
   const totals = report.totals;
   const rate = report.rate;
   // The label for the alternate figures: shift length, or paid hours without lunch.
-  const alternateLabel = report.rule.countPaid ? "shift length" : "paid, minus lunch";
+  const alternateLabel = report.rule.countPaid
+    ? "shift length"
+    : "paid, minus lunch";
 
   const matrixRows: MatrixRow[] = [
     {
@@ -56,7 +62,9 @@ export function LaborMatrix({ report }: { report: Report }) {
     {
       label: alternateLabel,
       isAlternate: true,
-      cells: days.map((dayRow) => ({ text: formatMoney(dayRow.reqAlt * rate) })),
+      cells: days.map((dayRow) => ({
+        text: formatMoney(dayRow.reqAlt * rate),
+      })),
       total: formatMoney(totals.reqCostAlt),
     },
     {
@@ -67,7 +75,9 @@ export function LaborMatrix({ report }: { report: Report }) {
     {
       label: alternateLabel,
       isAlternate: true,
-      cells: days.map((dayRow) => ({ text: String(roundTo2(dayRow.schedAlt)) })),
+      cells: days.map((dayRow) => ({
+        text: String(roundTo2(dayRow.schedAlt)),
+      })),
       total: String(roundTo2(totals.schedAlt)),
     },
     {
@@ -97,7 +107,9 @@ export function LaborMatrix({ report }: { report: Report }) {
 
   return (
     <>
-      <h2 className='mb-2 mt-6 text-sm font-semibold text-slate-700'>Labor matrix</h2>
+      <h2 className='mb-2 mt-6 text-sm font-semibold text-slate-700'>
+        Labor matrix
+      </h2>
       <div className={`${cardClass} overflow-x-auto`}>
         <table className='min-w-full text-sm'>
           <thead className='bg-slate-50'>

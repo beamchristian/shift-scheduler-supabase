@@ -37,7 +37,9 @@ export function RenameCard({
       <p className='text-sm text-slate-600'>{description}</p>
       <div className='flex flex-col gap-3 sm:flex-row sm:items-end'>
         <label className='block flex-1'>
-          <span className='text-sm font-medium text-slate-700'>{fieldLabel}</span>
+          <span className='text-sm font-medium text-slate-700'>
+            {fieldLabel}
+          </span>
           <input
             className={`${fieldClass} mt-1`}
             type='text'
@@ -49,7 +51,9 @@ export function RenameCard({
         <button
           className={primaryButtonClass}
           onClick={rename}
-          disabled={isSaving || !newName.trim() || newName.trim() === currentName}
+          disabled={
+            isSaving || !newName.trim() || newName.trim() === currentName
+          }
         >
           {isSaving ? "Saving…" : "Save name"}
         </button>

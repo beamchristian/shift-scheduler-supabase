@@ -14,7 +14,9 @@ export function CreateDepartmentCard() {
   const createDepartment = () => {
     setIsCreating(true);
     setCreateError(null);
-    callApi<{ ok: boolean; departmentId: number }>("/api/departments", { name: departmentName })
+    callApi<{ ok: boolean; departmentId: number }>("/api/departments", {
+      name: departmentName,
+    })
       .then(() => window.location.reload())
       .catch((thrownError: Error) => {
         setCreateError(thrownError.message);
@@ -25,19 +27,24 @@ export function CreateDepartmentCard() {
   return (
     <div className={`${cardClass} space-y-3 p-4`}>
       <p className='text-sm text-slate-600'>
-        The new department starts with standard store hours and an empty team and schedule. You
-        become its owner, and you can add other people on the Access list once it opens.
+        The new department starts with standard store hours and an empty team
+        and schedule. You become its owner, and you can add other people on the
+        Access list once it opens.
       </p>
       <div className='flex flex-col gap-3 sm:flex-row sm:items-end'>
         <label className='block flex-1'>
-          <span className='text-sm font-medium text-slate-700'>Department name</span>
+          <span className='text-sm font-medium text-slate-700'>
+            Department name
+          </span>
           <input
             className={`${fieldClass} mt-1`}
             type='text'
             maxLength={40}
             placeholder='Floral'
             value={departmentName}
-            onChange={(changeEvent) => setDepartmentName(changeEvent.target.value)}
+            onChange={(changeEvent) =>
+              setDepartmentName(changeEvent.target.value)
+            }
           />
         </label>
         <button

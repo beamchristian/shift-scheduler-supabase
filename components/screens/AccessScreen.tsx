@@ -52,9 +52,9 @@ export function AccessScreen({
           departmentName ? `Team access: ${departmentName}` : "Team access"
         }
       >
-        Who can do what. Company admins see and change everything. Store managers
-        manage their whole store. Department managers work in their departments
-        but can't change who has access.
+        Who can do what. Company admins see and change everything. Store
+        managers manage their whole store. Department managers work in their
+        departments but can't change who has access.
       </Heading>
 
       {isCompanyAdmin && (
@@ -100,13 +100,17 @@ export function AccessScreen({
             {members.map((member) => (
               <tr key={member.id}>
                 <td className='px-3 py-2.5 text-slate-900'>{member.email}</td>
-                <td className='px-3 py-2.5 text-slate-700'>Department manager</td>
+                <td className='px-3 py-2.5 text-slate-700'>
+                  Department manager
+                </td>
                 <td className='px-3 py-2.5 text-right'>
                   {canManage && (
                     <div className='flex items-center justify-end gap-3'>
                       <EmailEditor
                         value={member.email}
-                        onSave={(editedEmail) => onEditMember(member.id, editedEmail)}
+                        onSave={(editedEmail) =>
+                          onEditMember(member.id, editedEmail)
+                        }
                       />
                       <button
                         onClick={() => {

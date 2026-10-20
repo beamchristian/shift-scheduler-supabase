@@ -6,19 +6,26 @@ import { Callout } from "../ui/Callout";
 
 // A danger-zone card that deletes the open department. The owner must type its name to confirm.
 // After deleting, the page reloads and opens another department the person belongs to.
-export function DeleteDepartmentCard({ departmentName }: { departmentName: string }) {
+export function DeleteDepartmentCard({
+  departmentName,
+}: {
+  departmentName: string;
+}) {
   const [typedName, setTypedName] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // The button only works once the typed name matches the department's name, ignoring capitals.
-  const nameMatches = typedName.trim().toLowerCase() === departmentName.trim().toLowerCase();
+  const nameMatches =
+    typedName.trim().toLowerCase() === departmentName.trim().toLowerCase();
 
   // Deletes the department, then reloads so the page opens another one.
   const deleteDepartment = () => {
     setIsDeleting(true);
     setDeleteError(null);
-    callApi<{ ok: boolean }>("/api/departments/remove", { confirmName: typedName })
+    callApi<{ ok: boolean }>("/api/departments/remove", {
+      confirmName: typedName,
+    })
       .then(() => window.location.reload())
       .catch((thrownError: Error) => {
         setDeleteError(thrownError.message);
@@ -29,13 +36,16 @@ export function DeleteDepartmentCard({ departmentName }: { departmentName: strin
   return (
     <div className={`${cardClass} space-y-3 border-rose-200 p-4`}>
       <p className='text-sm text-slate-600'>
-        Deleting <span className='font-semibold text-slate-900'>{departmentName}</span> removes its
-        employees, shifts, schedule, settings and access list for good. This can't be undone, so
-        export its data first from Settings if you may need it.
+        Deleting{" "}
+        <span className='font-semibold text-slate-900'>{departmentName}</span>{" "}
+        removes its employees, shifts, schedule, settings and access list for
+        good. This can't be undone, so export its data first from Settings if
+        you may need it.
       </p>
       <label className='block'>
         <span className='text-sm font-medium text-slate-700'>
-          Type <span className='font-semibold'>{departmentName}</span> to confirm
+          Type <span className='font-semibold'>{departmentName}</span> to
+          confirm
         </span>
         <input
           className={`${fieldClass} mt-1`}

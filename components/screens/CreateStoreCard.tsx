@@ -30,9 +30,10 @@ export function CreateStoreCard() {
   return (
     <div className={`${cardClass} space-y-3 p-4`}>
       <p className='text-sm text-slate-600'>
-        A new store starts with its own Deli, Seafood, Grocery, Bakery, Butcher, Cafe and Produce
-        departments, each with standard store hours and an empty team and schedule. Store managers
-        are owners of every department in the store, so they can add people and change access.
+        A new store starts with its own Deli, Seafood, Grocery, Bakery, Butcher,
+        Cafe and Produce departments, each with standard store hours and an
+        empty team and schedule. Store managers are owners of every department
+        in the store, so they can add people and change access.
       </p>
       <label className='block'>
         <span className='text-sm font-medium text-slate-700'>Store name</span>
@@ -46,7 +47,9 @@ export function CreateStoreCard() {
         />
       </label>
       <label className='block'>
-        <span className='text-sm font-medium text-slate-700'>Store manager emails</span>
+        <span className='text-sm font-medium text-slate-700'>
+          Store manager emails
+        </span>
         <textarea
           className={`${fieldClass} mt-1`}
           rows={2}
