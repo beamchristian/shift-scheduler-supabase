@@ -62,6 +62,8 @@ export type SaveResult = Snapshot & { newId?: number };
 // The result of the dry-run staffing check.
 export type StaffingCheck = {
   unfilled: string[];
+  // One line per open shift, saying what stopped each person who could have worked it.
+  unfilledReasons?: string[];
   underMin: string[];
   capacity: number;
   needed: number;

@@ -201,6 +201,14 @@ export function ScheduleScreen({
                 .join(", ")}
               . Your team can cover {staffingCheck.capacity} of the{" "}
               {staffingCheck.needed} required shifts.
+              {/* Why each shift is open, so the fix is clear without guessing. */}
+              {(staffingCheck.unfilledReasons ?? []).length > 0 && (
+                <ul className='mt-2 list-disc space-y-1 pl-5'>
+                  {staffingCheck.unfilledReasons!.map((reasonText) => (
+                    <li key={reasonText}>{reasonText}</li>
+                  ))}
+                </ul>
+              )}
             </Callout>
           ))}
         {staffingCheck && staffingCheck.underMin.length > 0 && (

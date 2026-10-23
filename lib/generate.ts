@@ -1,8 +1,9 @@
 import { snapshot, transaction } from "./db";
 import { avgRate, dailySales, dayBudget } from "./matrix";
 import { repair } from "./solver";
-import { breakRule, logicHours } from "./hours";
+import { breakRule, logicHours, t12 } from "./hours";
 import { allowedFor, availStatus, limitFor, norm } from "./rules";
+import { explainUnfilledShift } from "./unfilledReason";
 import type { Employee, Settings, ShiftTemplate, StoreHour } from "./types";
 
 // Short day names for messages. Index 1 is Monday.
@@ -32,6 +33,8 @@ export interface Suggestion {
 export interface Plan {
   warnings: string[];
   unfilled: string[];
+  // One line per open shift, naming what stopped each person who could have worked it.
+  unfilledReasons: string[];
   underMin: string[];
   capacity: number;
   needed: number;
@@ -448,15 +451,39 @@ async function plan(shouldSave: boolean, departmentId: number): Promise<Plan> {
     if (assignedEmployeeBySlot[slotIndex] >= 0)
       applyAssignment(employees[assignedEmployeeBySlot[slotIndex]], slot);
   });
-  // Report every shift that is still open.
+  // The required shift a person works on a given day, or null when they are free that day.
+  const requiredShiftOnDay = (personIndex: number, day: number) => {
+    const heldSlotIndex = slots.findIndex(
+      (slot, slotIndex) =>
+        assignedEmployeeBySlot[slotIndex] === personIndex && slot.day === day,
+    );
+    return heldSlotIndex >= 0 ? slots[heldSlotIndex] : null;
+  };
+  // Explains an open shift by naming what stopped each person who could have worked it.
+  const explainOpenSlot = (slot: ShiftTemplate) =>
+    explainUnfilledShift(
+      slot,
+      employees.map((employee, personIndex) => ({
+        employee,
+        hoursThisWeek: employee.hoursThisWeek,
+        shiftOnSameDay: requiredShiftOnDay(personIndex, slot.day),
+      })),
+      shiftLength(slot),
+    );
+  const unfilledReasons = new Set<string>();
+
+  // Report every shift that is still open, with the reason it is open.
   slots.forEach((slot, slotIndex) => {
     const slotLabel = `${slot.name} on ${DAY_LABELS[slot.day]}`;
     if (assignedEmployeeBySlot[slotIndex] < 0) {
       const isOverWeeklyBudget =
         shouldSave && weekHours + shiftLength(slot) > weeklyHourBudget + 1e-9;
-      warnings.push(
-        `Unfilled: ${slotLabel} (${isOverWeeklyBudget ? `weekly hour budget of ${weeklyHourBudget.toFixed(1)} reached` : "nobody available: availability, max hours, or already working that day"}).`,
-      );
+      const reason = isOverWeeklyBudget
+        ? `The weekly hour budget of ${weeklyHourBudget.toFixed(1)} is used up.`
+        : explainOpenSlot(slot);
+      const slotWithTimes = `${slotLabel}, ${t12(slot.start)} to ${t12(slot.end)}`;
+      warnings.push(`Unfilled: ${slotWithTimes}. ${reason}`);
+      unfilledReasons.add(`${slotWithTimes}. ${reason}`);
       unfilledDescriptions.push(slotLabel);
       unfilledSlotTemplates.push(slot);
     } else if (shouldSave) {
@@ -787,6 +814,7 @@ async function plan(shouldSave: boolean, departmentId: number): Promise<Plan> {
   return {
     warnings,
     unfilled: unfilledDescriptions,
+    unfilledReasons: [...unfilledReasons],
     underMin: underMinimumHours,
     capacity,
     needed: slots.length,

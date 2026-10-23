@@ -3,7 +3,7 @@ import type { Employee, ShiftTemplate } from "./types";
 // Scheduling rules shared by the generator and the swap button.
 
 // Converts "HH:MM" into minutes since midnight.
-const minutesOfDay = (timeText: string): number => {
+export const minutesOfDay = (timeText: string): number => {
   const [hourText, minuteText] = timeText.split(":");
   return +hourText * 60 + +minuteText;
 };
