@@ -163,6 +163,12 @@ from the schedule rows. This is why editing one person's shift changes the secon
 | `/api/audit` | GET | department members | Recent changes. |
 | `/api/login`, `/api/logout` | POST | anyone | Sign in and out. |
 
+Audit log: `lib/audit.ts` `recordAuditEntry` writes one line per change; a failed write is logged on the server
+and does not undo the change. `/api/data` reads the row before an update or delete and uses `lib/auditChanges.ts`
+to describe only the fields that changed, with the names the screens use. A store payroll target change is
+logged in the department the person has open, and a forecast saved from the store overview in that department.
+Settings > Recent changes shows the last 50 lines from `/api/audit`.
+
 Endpoints that work on one week (data, generate, preview, swap, schedule, pdf, week, store-overview) take
 `?week=YYYY-MM-DD` or `week` in the body, and default to the upcoming week. Every write records an audit entry with
 the signed-in email.

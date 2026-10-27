@@ -111,7 +111,10 @@ Changing a template changes the "to fully staff" hours. Changing one person's sh
   week, with its status (Draft or Published) and schedule. Importing replaces everything, every week included.
   An older backup made before weeks were tracked holds one schedule, which comes in as a draft for the week on
   screen.
-- **Recent changes**: the history of changes in this department, with who made them and when.
+- **Recent changes** (at the bottom): the last 50 changes in this department, newest first, with who made them,
+  when, and what changed, for example "Changed employee · Maria: Max hrs 32 → 40". It covers the team,
+  availability, shifts, settings, day weights, forecasts, generating, swapping, editing a shift, publishing,
+  imports and access changes. Saving something without changing it adds nothing.
 
 ## Store overview
 

@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { resolveCaller } from "../../../lib/access";
 import { recordAuditEntry } from "../../../lib/audit";
+import { moneyText } from "../../../lib/auditChanges";
 import { errMsg, snapshot } from "../../../lib/db";
 import {
+  currentForecast,
   listWeeks,
   publishWeek,
   readWeekStart,
@@ -57,7 +59,15 @@ export async function POST(request: Request) {
       const weeklySales = Number(requestBody.weeklySales);
       if (String(requestBody.weeklySales ?? "").trim() === "" || !Number.isFinite(weeklySales) || weeklySales < 0)
         return NextResponse.json({ error: "Enter a weekly sales forecast of zero or more." }, { status: 400 });
+      const previousSales = await currentForecast(caller.departmentId, weekStart);
       refusal = await saveWeekForecast(caller.departmentId, weekStart, weeklySales);
+      if (!refusal && previousSales !== weeklySales)
+        await recordAuditEntry(
+          caller.departmentId,
+          caller.email,
+          "Changed sales forecast",
+          `${weekLabel(weekStart)}: ${moneyText(previousSales)} → ${moneyText(weeklySales)}`,
+        );
     } else if (requestBody.action === "publish") {
       refusal = await publishWeek(caller.departmentId, weekStart, caller.email);
       if (!refusal) await recordAuditEntry(caller.departmentId, caller.email, "Published schedule", weekLabel(weekStart));

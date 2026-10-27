@@ -6,23 +6,36 @@ import type { ScheduleWeek } from "./types";
 // Saving, changing and checking schedule weeks in the database. Date logic that the screens also need is in weeks.ts.
 
 // The message shown when someone tries to change a published week.
-export const PUBLISHED_WEEK_MESSAGE = "This week is published. Unpublish it first to make changes.";
+export const PUBLISHED_WEEK_MESSAGE =
+  "This week is published. Unpublish it first to make changes.";
 
 // Reads which week a request is for, from "?week=YYYY-MM-DD" in the address or "week" in a JSON body.
 // Returns the week's Monday. With no week given, uses the upcoming week. Returns an error response
 // when a week is given but is not a Monday date.
-export function readWeekStart(request: Request, requestBody?: { week?: unknown }): string | Response {
-  const weekText = requestBody?.week ?? new URL(request.url).searchParams.get("week");
-  if (weekText === undefined || weekText === null || weekText === "") return upcomingWeekStart();
+export function readWeekStart(
+  request: Request,
+  requestBody?: { week?: unknown },
+): string | Response {
+  const weekText =
+    requestBody?.week ?? new URL(request.url).searchParams.get("week");
+  if (weekText === undefined || weekText === null || weekText === "")
+    return upcomingWeekStart();
   const weekStart = String(weekText);
   if (!isWeekStart(weekStart))
-    return NextResponse.json({ error: "Pick a week by its Monday date." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Pick a week by its Monday date." },
+      { status: 400 },
+    );
   return weekStart;
 }
 
 // Returns an error response when the week is published and so can't be changed, or null when it can.
-export function refuseIfPublished(week: Pick<ScheduleWeek, "status">): Response | null {
-  return week.status === "published" ? NextResponse.json({ error: PUBLISHED_WEEK_MESSAGE }, { status: 409 }) : null;
+export function refuseIfPublished(
+  week: Pick<ScheduleWeek, "status">,
+): Response | null {
+  return week.status === "published"
+    ? NextResponse.json({ error: PUBLISHED_WEEK_MESSAGE }, { status: 409 })
+    : null;
 }
 
 // Finds a department's week, or makes it as a new draft if it doesn't exist yet. A new week starts with the
@@ -38,7 +51,10 @@ export async function ensureWeek(
      on conflict (department_id, week_start) do nothing`,
     [departmentId, weekStart],
   );
-  const [weekRow] = await runStatement<{ id: number; status: ScheduleWeek["status"] }>(
+  const [weekRow] = await runStatement<{
+    id: number;
+    status: ScheduleWeek["status"];
+  }>(
     "select id, status from schedule_weeks where department_id = $1 and week_start = $2::date",
     [departmentId, weekStart],
   );
@@ -46,11 +62,14 @@ export async function ensureWeek(
 }
 
 // Records who generated a week's schedule, and when.
-export async function markGenerated(weekId: number, actorEmail: string): Promise<void> {
-  await runQuery("update schedule_weeks set generated_by = $1, generated_at = now() where id = $2", [
-    actorEmail,
-    weekId,
-  ]);
+export async function markGenerated(
+  weekId: number,
+  actorEmail: string,
+): Promise<void> {
+  await runQuery(
+    "update schedule_weeks set generated_by = $1, generated_at = now() where id = $2",
+    [actorEmail, weekId],
+  );
 }
 
 // Saves a week's sales forecast. It also becomes the department's default forecast, so the next new week
@@ -62,22 +81,56 @@ export async function saveWeekForecast(
 ): Promise<string | null> {
   const week = await ensureWeek(departmentId, weekStart);
   if (week.status === "published") return PUBLISHED_WEEK_MESSAGE;
-  await runQuery("update schedule_weeks set weekly_sales = $1 where id = $2", [weeklySales, week.id]);
-  await runQuery("update settings set weekly_sales = $1 where department_id = $2", [weeklySales, departmentId]);
+  await runQuery("update schedule_weeks set weekly_sales = $1 where id = $2", [
+    weeklySales,
+    week.id,
+  ]);
+  await runQuery(
+    "update settings set weekly_sales = $1 where department_id = $2",
+    [weeklySales, departmentId],
+  );
   return null;
+}
+
+// Returns the sales forecast a week uses now: its own, or the department's default when the week has none yet.
+// Used to show the old amount in the audit log when the forecast changes. Null when there is neither.
+export async function currentForecast(
+  departmentId: number,
+  weekStart: string,
+): Promise<number | null> {
+  const [forecastRow] = await runQuery<{ weekly_sales: number | null }>(
+    `select coalesce(
+       (select week.weekly_sales from schedule_weeks week where week.department_id = $1 and week.week_start = $2::date),
+       (select settings.weekly_sales from settings where settings.department_id = $1)
+     ) as weekly_sales`,
+    [departmentId, weekStart],
+  );
+  return forecastRow?.weekly_sales === null ||
+    forecastRow?.weekly_sales === undefined
+    ? null
+    : Number(forecastRow.weekly_sales);
 }
 
 // Publishes a week: marks it as the official schedule and saves the payroll %, rate and day weights it uses
 // now, so later changes in Settings don't change it. Returns an error message, or null when published.
-export async function publishWeek(departmentId: number, weekStart: string, actorEmail: string): Promise<string | null> {
+export async function publishWeek(
+  departmentId: number,
+  weekStart: string,
+  actorEmail: string,
+): Promise<string | null> {
   // Only a saved week with shifts can be published, so a missing week is not created here.
-  const [week] = await runQuery<{ id: number; status: string; shift_count: number }>(
+  const [week] = await runQuery<{
+    id: number;
+    status: string;
+    shift_count: number;
+  }>(
     `select week.id, week.status, (select count(*)::int from schedule shift where shift.week_id = week.id) as shift_count
      from schedule_weeks week where week.department_id = $1 and week.week_start = $2::date`,
     [departmentId, weekStart],
   );
   if (week?.status === "published") return "This week is already published.";
-  if (!week?.shift_count) return `There is no schedule for ${weekLabel(weekStart)} to publish yet. Generate one first.`;
+  if (!week?.shift_count)
+    return `There is no schedule for ${weekLabel(weekStart)} to publish yet. Generate one first.`;
   await runQuery(
     `update schedule_weeks set
        status = 'published',
@@ -94,7 +147,10 @@ export async function publishWeek(departmentId: number, weekStart: string, actor
 
 // Unpublishes a week so it can be changed again. Its saved numbers are kept for the record, but a draft week
 // uses the current Settings. Returns an error message, or null when unpublished.
-export async function unpublishWeek(departmentId: number, weekStart: string): Promise<string | null> {
+export async function unpublishWeek(
+  departmentId: number,
+  weekStart: string,
+): Promise<string | null> {
   const [changedRow] = await runQuery<{ id: number }>(
     `update schedule_weeks set status = 'draft'
      where department_id = $1 and week_start = $2::date and status = 'published'

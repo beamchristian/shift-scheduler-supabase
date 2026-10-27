@@ -5,17 +5,33 @@ import { callApi, formatTimestamp } from "../../lib/ui/format";
 import { cardClass } from "../../lib/ui/styles";
 import { Callout } from "../ui/Callout";
 
-// The list of recent changes: schedule generations, closer swaps, and backup imports.
-// It loads each time the Settings screen opens.
-export function RecentChanges() {
+// Readable names for actions saved by older versions of the app, so old lines read like new ones.
+const OLDER_ACTION_NAMES: Record<string, string> = {
+  access_added: "Added department manager",
+  access_changed: "Changed department manager",
+  access_removed: "Removed department manager",
+};
+
+// The action as it should read on screen.
+function readableAction(action: string): string {
+  return OLDER_ACTION_NAMES[action] ?? action;
+}
+
+// The list of recent changes in the department: who changed what, and when, newest first.
+// It loads when the Settings screen opens, and again whenever reloadSignal changes
+// (the page passes its data, which changes after every save), so a change shows up right away.
+export function RecentChanges({ reloadSignal }: { reloadSignal?: unknown }) {
   const [entries, setEntries] = useState<AuditEntry[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     callApi<{ entries: AuditEntry[] }>("/api/audit")
-      .then((auditReply) => setEntries(auditReply.entries))
+      .then((auditReply) => {
+        setEntries(auditReply.entries);
+        setLoadError(null);
+      })
       .catch((thrownError: Error) => setLoadError(thrownError.message));
-  }, []);
+  }, [reloadSignal]);
 
   if (loadError) return <Callout tone='warn'>{loadError}</Callout>;
 
@@ -32,14 +48,15 @@ export function RecentChanges() {
     );
 
   return (
-    <div className={`${cardClass} overflow-hidden`}>
+    // The list scrolls inside its own box, about eight changes tall, so the page stays short.
+    <div className={`${cardClass} max-h-96 overflow-y-auto overscroll-contain`}>
       <ul className='divide-y divide-slate-100'>
         {entries.map((entry) => (
           <li key={entry.id} className='px-4 py-2.5'>
             <div className='text-sm font-medium text-slate-900'>
-              {entry.action}
+              {readableAction(entry.action)}
               {entry.detail && (
-                <span className='font-normal text-slate-600'>
+                <span className='break-words font-normal text-slate-600'>
                   {" "}
                   · {entry.detail}
                 </span>

@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { canManageStore, resolveCaller } from "../../../../lib/access";
+import { recordAuditEntry } from "../../../../lib/audit";
+import { moneyText } from "../../../../lib/auditChanges";
 import { errMsg, runQuery } from "../../../../lib/db";
-import { readWeekStart, saveWeekForecast } from "../../../../lib/scheduleWeeks";
+import { currentForecast, readWeekStart, saveWeekForecast } from "../../../../lib/scheduleWeeks";
 import { loadStoreOverview } from "../../../../lib/storeOverviewData";
+import { weekLabel } from "../../../../lib/weeks";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +19,8 @@ interface SaveWeeklySalesRequest {
 
 // Saves a department's projected sales for one week. The day split keeps the department's day weights,
 // so only the weekly total changes. A published week is refused. Returns the updated store overview for that week.
-// Only company admins and store managers of the same store may change it.
+// Only company admins and store managers of the same store may change it. The change is written to that
+// department's audit log, since it is that department's forecast.
 export async function POST(request: Request) {
   const caller = await resolveCaller(request);
   if (caller instanceof Response) return caller;
@@ -43,8 +47,16 @@ export async function POST(request: Request) {
     if (!ownershipRows.length)
       return NextResponse.json({ error: "That department is not in your store." }, { status: 403 });
 
+    const previousSales = await currentForecast(Number(departmentId), weekStart);
     const refusal = await saveWeekForecast(Number(departmentId), weekStart, weeklySalesNumber);
     if (refusal) return NextResponse.json({ error: refusal }, { status: 409 });
+    if (previousSales !== weeklySalesNumber)
+      await recordAuditEntry(
+        Number(departmentId),
+        caller.email,
+        "Changed sales forecast",
+        `${weekLabel(weekStart)}: ${moneyText(previousSales)} → ${moneyText(weeklySalesNumber)} (from the store overview)`,
+      );
     return NextResponse.json(await loadStoreOverview(caller.storeId, caller.storeName, weekStart));
   } catch (thrownError) {
     return NextResponse.json({ error: errMsg(thrownError) }, { status: 500 });

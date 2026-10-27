@@ -10,6 +10,7 @@ import { EditableTable } from "../EditableTable/EditableTable";
 import type { ColumnDefinition, TableRow } from "../types";
 import { Callout } from "../ui/Callout";
 import { Heading } from "../ui/Heading";
+import { RecentChanges } from "./RecentChanges";
 
 // Settings for payroll and the shift start window.
 const PAYROLL_COLUMNS: ColumnDefinition[] = [
@@ -58,7 +59,7 @@ const BREAK_COLUMNS: ColumnDefinition[] = [
   { key: "schedule_title", label: "Schedule title printed on the PDF" },
 ];
 
-// The Settings screen: payroll, lunch, and export/import of all data.
+// The Settings screen: payroll, lunch, export/import of all data, and the list of recent changes.
 // Day weights are set in the labor matrix on the Schedule screen.
 export function SettingsScreen({
   weekStart,
@@ -125,7 +126,7 @@ export function SettingsScreen({
         </p>
         <div className='flex flex-col gap-2 sm:flex-row'>
           <a
-            href="/api/export"
+            href='/api/export'
             download
             className={`${primaryButtonClass} w-full sm:w-auto`}
           >
@@ -153,6 +154,15 @@ export function SettingsScreen({
           <Callout tone={backupMessage.tone}>{backupMessage.text}</Callout>
         )}
       </div>
+
+      <h2 className='mb-2 mt-8 text-sm font-semibold text-slate-700'>
+        Recent changes
+      </h2>
+      <p className='mb-2 text-sm text-slate-600'>
+        The last 50 changes in this department: who made them, when, and what
+        changed.
+      </p>
+      <RecentChanges reloadSignal={data} />
     </>
   );
 }

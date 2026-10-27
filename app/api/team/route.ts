@@ -64,7 +64,7 @@ export async function POST(request: Request) {
          on conflict (department_id, email) do nothing`,
         [departmentId, newMemberEmail],
       );
-      await recordAuditEntry(departmentId, caller.email, "access_added", newMemberEmail);
+      await recordAuditEntry(departmentId, caller.email, "Added department manager", newMemberEmail);
     } else if (requestBody.action === "update") {
       const memberToEdit = await findMember(requestedMemberId, departmentId);
       if (!memberToEdit)
@@ -79,13 +79,13 @@ export async function POST(request: Request) {
       if (alreadyListed)
         return NextResponse.json({ error: "That person is already on this department." }, { status: 400 });
       await runQuery("update department_members set email = $1 where id = $2", [changedEmail, memberToEdit.id]);
-      await recordAuditEntry(departmentId, caller.email, "access_changed", `${memberToEdit.email} to ${changedEmail}`);
+      await recordAuditEntry(departmentId, caller.email, "Changed department manager", `${memberToEdit.email} → ${changedEmail}`);
     } else if (requestBody.action === "remove") {
       const memberToRemove = await findMember(requestedMemberId, departmentId);
       if (!memberToRemove)
         return NextResponse.json({ error: "That person was not found." }, { status: 404 });
       await runQuery("delete from department_members where id = $1", [memberToRemove.id]);
-      await recordAuditEntry(departmentId, caller.email, "access_removed", memberToRemove.email);
+      await recordAuditEntry(departmentId, caller.email, "Removed department manager", memberToRemove.email);
     } else {
       return NextResponse.json({ error: "Unknown action." }, { status: 400 });
     }
