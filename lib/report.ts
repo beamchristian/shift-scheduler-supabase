@@ -1,7 +1,8 @@
 import { avgRate, dailySales, dayBudget, requiredHours } from "./matrix";
 import { breakRule, clockHours, paidHours, type BreakRule } from "./hours";
 import { closingTimesByDay, isClosingTime } from "./rules";
-import type { Employee, ScheduleRow, Snapshot } from "./types";
+import type { Employee, ScheduleRow, Snapshot, StoreHour } from "./types";
+import { withWeekNumbers } from "./weeks";
 
 // One row of the labor matrix, for one day.
 // "req" and "sched" are the hours the app's logic uses (scheduled shift hours by default).
@@ -32,6 +33,11 @@ export interface EmpRow {
 export interface Report {
   rule: BreakRule;
   rate: number;
+  // The week's forecast and payroll target, as this report uses them.
+  weeklySales: number;
+  payrollPercent: number;
+  // The day weights this report uses. A published week shows the weights it was published with.
+  dayWeights: StoreHour[];
   days: DayRow[];
   heads: Record<number, number>;
   employees: EmpRow[];
@@ -53,11 +59,16 @@ export interface Report {
 }
 
 // Builds the labor matrix and each person's hours from one department's data. Used by the screen and the PDF.
-export function buildReport(snapshot: Snapshot): Report {
+export function buildReport(departmentSnapshot: Snapshot): Report {
+  // The week's own forecast, and for a published week its saved payroll %, rate and day weights.
+  const snapshot = withWeekNumbers(departmentSnapshot);
   const breakSettings = breakRule(snapshot.settings);
   const hourlyRate = avgRate(snapshot.settings);
   const dailySalesByDay = dailySales(snapshot.store_hours, snapshot.settings);
-  const requiredHoursTotals = requiredHours(snapshot.shift_templates, breakSettings);
+  const requiredHoursTotals = requiredHours(
+    snapshot.shift_templates,
+    breakSettings,
+  );
   // Closing time for each day: the latest end time among that day's shift templates.
   const closingTimes = closingTimesByDay(snapshot.shift_templates);
   // Picks the main figure and the reference figure. The main one depends on the "count paid hours" setting.
@@ -68,15 +79,28 @@ export function buildReport(snapshot: Snapshot): Report {
 
   // One row per day of the labor matrix.
   const days: DayRow[] = snapshot.store_hours.map((storeHour) => {
-    const dayBudgetFigures = dayBudget(dailySalesByDay[storeHour.day], snapshot.settings, hourlyRate);
-    const scheduledRowsForDay = snapshot.schedule.filter((scheduleRow) => scheduleRow.day === storeHour.day);
+    const dayBudgetFigures = dayBudget(
+      dailySalesByDay[storeHour.day],
+      snapshot.settings,
+      hourlyRate,
+    );
+    const scheduledRowsForDay = snapshot.schedule.filter(
+      (scheduleRow) => scheduleRow.day === storeHour.day,
+    );
     const requiredFigures = pickMainAndReference(
       requiredHoursTotals.shift[storeHour.day] || 0,
       requiredHoursTotals.paid[storeHour.day] || 0,
     );
     const scheduledFigures = pickMainAndReference(
-      scheduledRowsForDay.reduce((runningTotal, row) => runningTotal + clockHours(row.start, row.end), 0),
-      scheduledRowsForDay.reduce((runningTotal, row) => runningTotal + paidHours(row.start, row.end, breakSettings), 0),
+      scheduledRowsForDay.reduce(
+        (runningTotal, row) => runningTotal + clockHours(row.start, row.end),
+        0,
+      ),
+      scheduledRowsForDay.reduce(
+        (runningTotal, row) =>
+          runningTotal + paidHours(row.start, row.end, breakSettings),
+        0,
+      ),
     );
     return {
       day: storeHour.day,
@@ -98,16 +122,23 @@ export function buildReport(snapshot: Snapshot): Report {
       .filter((scheduleRow) => scheduleRow.employee_id === employee.id)
       .sort((first, second) => first.day - second.day);
     const personFigures = pickMainAndReference(
-      shiftsForEmployee.reduce((runningTotal, row) => runningTotal + clockHours(row.start, row.end), 0),
-      shiftsForEmployee.reduce((runningTotal, row) => runningTotal + paidHours(row.start, row.end, breakSettings), 0),
+      shiftsForEmployee.reduce(
+        (runningTotal, row) => runningTotal + clockHours(row.start, row.end),
+        0,
+      ),
+      shiftsForEmployee.reduce(
+        (runningTotal, row) =>
+          runningTotal + paidHours(row.start, row.end, breakSettings),
+        0,
+      ),
     );
     return {
       emp: employee,
       shifts: shiftsForEmployee,
       hours: personFigures.main,
       alt: personFigures.alt,
-      closes: shiftsForEmployee.filter(
-        (row) => isClosingTime(closingTimes, row.day, row.end),
+      closes: shiftsForEmployee.filter((row) =>
+        isClosingTime(closingTimes, row.day, row.end),
       ).length,
     };
   });
@@ -119,6 +150,9 @@ export function buildReport(snapshot: Snapshot): Report {
   return {
     rule: breakSettings,
     rate: hourlyRate,
+    weeklySales: Number(snapshot.settings.weekly_sales),
+    payrollPercent: Number(snapshot.settings.payroll_pct),
+    dayWeights: snapshot.store_hours,
     days,
     employees,
     heads: requiredHoursTotals.heads,

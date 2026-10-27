@@ -7,6 +7,7 @@ import {
 } from "pdf-lib";
 import { t12 } from "./hours";
 import { buildReport } from "./report";
+import { dateOfDay, shortDateLabel, weekLabel } from "./weeks";
 import type { Snapshot } from "./types";
 
 // US Letter, landscape. All positions below are measured from the top of the page, in points.
@@ -73,9 +74,16 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
   const pdfDocument = await PDFDocument.create();
   const regularFont = await pdfDocument.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdfDocument.embedFont(StandardFonts.HelveticaBold);
+  // The title names the week, for example "Deli Schedule: Nov 2 – 7, 2026".
+  const weekStart = snapshot.week.week_start;
   const scheduleTitle = replaceUnsupportedCharacters(
-    snapshot.settings.schedule_title?.trim() || "Weekly Schedule",
+    `${snapshot.settings.schedule_title?.trim() || "Weekly Schedule"}: ${weekLabel(weekStart)}`,
   );
+  // A draft is marked on the page, so a printed copy can't be mistaken for the published schedule.
+  const isDraft = snapshot.week.status !== "published";
+  // A day's column heading, for example "Mon Nov 2".
+  const dayHeading = (dayNumber: number) =>
+    `${DAY_LABELS[dayNumber]} ${shortDateLabel(dateOfDay(weekStart, dayNumber))}`;
 
   let currentPage: PDFPage = pdfDocument.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   // Current height from the top of the page.
@@ -168,9 +176,21 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
   };
 
   // ---- Title block
-  drawText(scheduleTitle, PAGE_MARGIN, 520, currentTop + 11, 18, boldFont);
+  drawText(scheduleTitle, PAGE_MARGIN, 470, currentTop + 11, 18, boldFont);
+  if (isDraft)
+    drawText(
+      "DRAFT - not published",
+      PAGE_WIDTH - PAGE_MARGIN - 200,
+      200,
+      currentTop + 20,
+      9,
+      boldFont,
+      COLORS.warn,
+      "right",
+    );
   drawText(
-    "Generated " +
+    // The day the PDF was made, which can differ from when the schedule was generated.
+    "Printed " +
       new Date().toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
@@ -185,8 +205,9 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
     "right",
   );
   currentTop += 26;
-  const weeklySalesForecast = Number(snapshot.settings.weekly_sales);
-  const payrollPercent = Number(snapshot.settings.payroll_pct);
+  // The week's own forecast and payroll target, which a published week keeps from when it was published.
+  const weeklySalesForecast = report.weeklySales;
+  const payrollPercent = report.payrollPercent;
   const subtitleParts = [
     `Forecast sales ${formatMoney(weeklySalesForecast)}`,
     `Payroll target ${payrollPercent}% (${formatMoney(totals.target)})`,
@@ -353,7 +374,7 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
   );
   WORK_DAYS.forEach((dayNumber, columnIndex) =>
     drawText(
-      DAY_LABELS[dayNumber],
+      dayHeading(dayNumber),
       PAGE_MARGIN + LABEL_COLUMN_WIDTH + columnIndex * DAY_COLUMN_WIDTH,
       DAY_COLUMN_WIDTH,
       currentTop + HEADER_ROW_HEIGHT / 2,
@@ -448,7 +469,7 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
     );
     WORK_DAYS.forEach((dayNumber, columnIndex) =>
       drawText(
-        DAY_LABELS[dayNumber],
+        dayHeading(dayNumber),
         PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + columnIndex * SHIFT_COLUMN_WIDTH,
         SHIFT_COLUMN_WIDTH,
         currentTop + 9,

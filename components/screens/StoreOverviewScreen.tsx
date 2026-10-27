@@ -6,6 +6,7 @@ import type { DayRow } from "../../lib/report";
 import type { StoreDayTotals, StoreOverview } from "../../lib/storeOverview";
 import { Callout } from "../ui/Callout";
 import { Heading } from "../ui/Heading";
+import { weekLabel } from "../../lib/weeks";
 
 // One line of a store table: a label, one value per day, a week total, and optional emphasis.
 type OverviewRow = {
@@ -19,7 +20,7 @@ type OverviewRow = {
 };
 
 // The overview as the screen receives it: the store overview, plus the store's name and saved payroll target.
-type OverviewData = StoreOverview & { storeName: string; storePayrollPercent: number | null };
+type OverviewData = StoreOverview & { storeName: string; weekStart?: string; storePayrollPercent: number | null };
 
 // Formats an hours figure with at most two decimals, for example "7.5".
 const formatHoursText = (hours: number) => String(roundTo2(hours));
@@ -338,6 +339,11 @@ export function StoreOverviewScreen({
   return (
     <>
       <Heading title={storeName ? `Store overview: ${storeName}` : "Store overview"}>
+        {overview.weekStart && (
+          <span className='mb-1 block font-semibold text-slate-800'>
+            Week of {weekLabel(overview.weekStart)}. Change the week on the Schedule screen.
+          </span>
+        )}
         Every department in the store, added together by day. Set the store payroll
         target to see whether total scheduled payroll is over or under it. Each
         department's weekly projected sales can be changed in its table.

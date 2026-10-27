@@ -27,8 +27,33 @@ dropdown appears. Departments are grouped by store, so pick the store first, the
 
 This is where most of the week's work happens.
 
-1. **Forecast.** Enter this week's sales forecast and save it. Labor budgets come from this number.
-2. **Generate.** Build a new schedule for the department. Any warnings appear above the schedule.
+### Weeks
+
+Every schedule belongs to one week, Monday to Saturday. The week bar at the top of the Schedule screen picks it:
+
+- **◀ / ▶** go back or forward a week. **This week** and **Next week** jump straight there. The list on the right
+  shows every week that has a saved schedule.
+- The screen opens on **next week**, the one being planned. The address bar keeps the week, so a refresh or a
+  shared link opens the same one.
+- The labels say where the week stands: **Draft** (being worked on), **Published** (the official schedule),
+  **No schedule yet**, and **This week**, **Next week** or **Past week**.
+- Under the week name: who generated it and when, and who published it and when.
+
+**Publishing.** When a draft is ready, click **Publish schedule**. A published week is locked: Generate, Swap
+closers, changing a shift, the forecast and the day weights are all turned off, and the server refuses changes too.
+To change a published week, click **Unpublish** (it asks you to confirm), make the changes, and publish it again.
+A published week also keeps the payroll %, rate and day weights it was published with, so later changes in
+Settings don't change it. The PDF of a draft is marked "DRAFT - not published".
+
+**Past weeks.** A week that is over can still be changed, for example to record a call-out, but the screen warns you
+and each change asks you to confirm first. A published past week has to be unpublished first, like any other.
+
+### Each week's work
+
+1. **Forecast.** Enter the week's sales forecast and click away to save it. Labor budgets come from this number.
+   Each week keeps its own forecast, and a new week starts from the last one you entered.
+2. **Generate.** Build the week's schedule. It replaces only that week's draft. Any warnings appear above the
+   schedule. When it's ready, **Publish schedule**.
 3. **Swap a closer.** Each day has a button to swap the closer, for example when someone calls out. The app
    picks the best option and respects availability, skills, and closing limits.
 4. **Change one shift.** Click any shift on the grid (or a row on a phone). In the Edit shift box:
@@ -37,9 +62,9 @@ This is where most of the week's work happens.
      Yellow messages are warnings you can still save through, such as labor over budget or someone outside
      their availability.
    - Save shift. The saved change shows its warnings above the labor section.
-   A changed shift updates the labor matrix, each person's hours, and the exports. "To fully staff" stays the
-   same, because it comes from the shift setup, not from individual shifts. Change the shift setup on the
-   Shifts screen to change it.
+     A changed shift updates the labor matrix, each person's hours, and the exports. "To fully staff" stays the
+     same, because it comes from the shift setup, not from individual shifts. Change the shift setup on the
+     Shifts screen to change it.
 5. **Labor matrix.** Compare scheduled hours and cost with the budget for each day and the week.
    - **Day weight** (top row): each day's share of the week's sales. Type a new number and click away to
      save it. Weights are relative, so they don't need to add up to 100; the grey figure under each box
@@ -108,6 +133,9 @@ Sections run from the widest access to the narrowest.
 
 ## Common tasks
 
+- **Planning next week:** Schedule opens on next week. Enter the forecast > Generate > check it > Publish schedule.
+- **Someone calls out on a published week:** Schedule > Unpublish > swap the closer or change their shift >
+  Publish schedule again.
 - **Someone calls out:** Schedule > swap the closer for that day, or click their shift and change or clear it.
 - **Someone is leaving early:** Schedule > click their shift > change the end time > read the warnings > save.
 - **A new employee starts:** create their login in Supabase, then Team > add them, then Availability.

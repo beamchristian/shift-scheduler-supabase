@@ -8,10 +8,12 @@ import { EditableCell } from "./EditableCell";
 
 // An editable table. A table on a computer, and stacked cards on a phone.
 // Saves a row whenever one of its fields changes.
-// Props: which table it edits, its columns and rows, the default values for a new row,
+// Props: which table it edits, the week on screen, its columns and rows, the default values for a new row,
 // and options for hiding the add/remove buttons, allowing duplicates, and highlighting a new row.
 export function EditableTable(props: {
   table: TableName;
+  // The week on screen, as its Monday. Each save replies with that week's data, so the screen stays on it.
+  weekStart: string;
   columns: ColumnDefinition[];
   rows: TableRow[];
   onDataChange: (newSnapshot: Snapshot) => void;
@@ -24,6 +26,7 @@ export function EditableTable(props: {
 }) {
   const {
     table,
+    weekStart,
     columns,
     rows: rowsToShow,
     onDataChange,
@@ -37,7 +40,7 @@ export function EditableTable(props: {
 
   // Saves one row. A row without an id is new, so the id of the row the server created is passed on.
   const saveRow = (rowToSave: TableRow) =>
-    callApi<SaveResult>("/api/data", { action: "save", table, row: rowToSave })
+    callApi<SaveResult>("/api/data", { action: "save", table, row: rowToSave, week: weekStart })
       .then((savedResult) => {
         onDataChange(savedResult);
         if (!rowToSave.id && savedResult.newId) onRowAdded?.(savedResult.newId);
@@ -67,7 +70,7 @@ export function EditableTable(props: {
 
   // Deletes one row.
   const deleteRow = (rowToDelete: TableRow) =>
-    callApi<Snapshot>("/api/data", { action: "delete", table, row: rowToDelete })
+    callApi<Snapshot>("/api/data", { action: "delete", table, row: rowToDelete, week: weekStart })
       .then(onDataChange)
       .catch((thrownError: Error) => alert(thrownError.message));
 

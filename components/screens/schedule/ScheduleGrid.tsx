@@ -2,6 +2,7 @@
 import { hasBreak } from "../../../lib/hours";
 import type { Report } from "../../../lib/report";
 import { closingTimesByDay, isClosingTime } from "../../../lib/rules";
+import { dateOfDay, shortDateLabel } from "../../../lib/weeks";
 import type { ScheduleRow, Snapshot } from "../../../lib/types";
 import {
   DAY_FULL_NAMES,
@@ -18,12 +19,18 @@ import { Callout } from "../../ui/Callout";
 // The generated schedule: a grid of people by day on computers, and a card for each day on phones.
 export function ScheduleGrid({
   data,
+  weekStart,
+  isLocked,
   report,
   swapMessage,
   onSwapClosers,
   onEditShift,
 }: {
   data: Snapshot;
+  // The week shown, as its Monday, so each day can show its date.
+  weekStart: string;
+  // True on a published week: no swaps, and shifts can't be opened for editing.
+  isLocked: boolean;
   report: Report;
   swapMessage: { tone: "ok" | "warn"; text: string } | null;
   onSwapClosers: (dayNumber: number) => void;
@@ -80,12 +87,17 @@ export function ScheduleGrid({
                   className='px-2 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500'
                 >
                   {DAY_SHORT_LABELS[dayNumber]}
-                  <button
-                    onClick={() => onSwapClosers(dayNumber)}
-                    className='mt-0.5 block text-[11px] font-medium normal-case tracking-normal text-indigo-600 hover:underline'
-                  >
-                    Swap closers
-                  </button>
+                  <span className='ml-1 font-medium normal-case tracking-normal text-slate-400'>
+                    {shortDateLabel(dateOfDay(weekStart, dayNumber))}
+                  </span>
+                  {!isLocked && (
+                    <button
+                      onClick={() => onSwapClosers(dayNumber)}
+                      className='mt-0.5 block text-[11px] font-medium normal-case tracking-normal text-indigo-600 hover:underline'
+                    >
+                      Swap closers
+                    </button>
+                  )}
                 </th>
               ))}
               <th className='px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500'>
@@ -130,8 +142,9 @@ export function ScheduleGrid({
                               key={shift.id}
                               type='button'
                               onClick={() => onEditShift(shift)}
-                              title='Click to change this shift'
-                              className={`block whitespace-nowrap rounded-md px-2 py-1 text-left text-xs ring-1 ring-inset hover:brightness-95 ${shiftChipClasses(shift.name)}`}
+                              disabled={isLocked}
+                              title={isLocked ? "Published. Unpublish the week to change shifts." : "Click to change this shift"}
+                              className={`block whitespace-nowrap rounded-md px-2 py-1 text-left text-xs ring-1 ring-inset ${isLocked ? "cursor-default" : "hover:brightness-95"} ${shiftChipClasses(shift.name)}`}
                             >
                               <div className='font-semibold'>{shift.name}</div>
                               <div>
@@ -182,19 +195,24 @@ export function ScheduleGrid({
             );
           return (
             <div key={dayRow.day} className={`${cardClass} overflow-hidden`}>
-              <div className='flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-2.5'>
-                <span className='font-semibold text-slate-900'>
+              <div className='flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-slate-100 bg-slate-50 px-4 py-2.5'>
+                <span className='whitespace-nowrap font-semibold text-slate-900'>
                   {DAY_FULL_NAMES[dayRow.day]}
+                  <span className='ml-1.5 font-normal text-slate-500'>
+                    {shortDateLabel(dateOfDay(weekStart, dayRow.day))}
+                  </span>
                 </span>
                 <div className='flex items-center gap-3'>
-                  <button
-                    onClick={() => onSwapClosers(dayRow.day)}
-                    className='text-xs font-medium text-indigo-600'
-                  >
-                    Swap closers
-                  </button>
+                  {!isLocked && (
+                    <button
+                      onClick={() => onSwapClosers(dayRow.day)}
+                      className='whitespace-nowrap text-xs font-medium text-indigo-600'
+                    >
+                      Swap closers
+                    </button>
+                  )}
                   <span
-                    className={`text-xs ${dayRow.sched > dayRow.allowed ? "font-semibold text-amber-600" : "text-slate-500"}`}
+                    className={`whitespace-nowrap text-xs ${dayRow.sched > dayRow.allowed ? "font-semibold text-amber-600" : "text-slate-500"}`}
                   >
                     {roundTo2(dayRow.sched)} of {roundTo2(dayRow.allowed)} hrs
                     {report.showAlt &&
@@ -211,8 +229,10 @@ export function ScheduleGrid({
                 {dayShifts.map((shift) => (
                   <li
                     key={shift.id}
-                    onClick={() => onEditShift(shift)}
-                    className='flex cursor-pointer items-center justify-between gap-3 px-4 py-2.5 hover:bg-slate-50'
+                    onClick={() => {
+                      if (!isLocked) onEditShift(shift);
+                    }}
+                    className={`flex items-center justify-between gap-3 px-4 py-2.5 ${isLocked ? "" : "cursor-pointer hover:bg-slate-50"}`}
                   >
                     <div>
                       <div className='text-sm font-medium text-slate-900'>

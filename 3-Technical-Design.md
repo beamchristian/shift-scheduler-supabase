@@ -142,6 +142,11 @@ Every write records an audit entry with the signed-in email.
   - 002 to 007: breaks, title, paid hours, rate, first departments, seeding and indexes.
   - 008: stores, store managers, company admins, and the store link for departments.
   - 009: department roles reduced to `manager` only. Old owners become department managers.
+  - 010: store payroll target.
+  - 011: schedule weeks. Adds `schedule_weeks` (one row per department per Monday, Draft or Published, with the
+    week's own forecast and, once published, its payroll %, rate and day weights) and `schedule.week_id`.
+    Existing schedules become the week of 2 Nov 2026, Published. Run it at the same time as deploying the code
+    that uses weeks: older code can't save a schedule once `week_id` is required.
 - Migration 005 has a known issue on a brand-new empty database (the identity sequence). The fix is in
   `schema.sql`, which should be used for new projects.
 

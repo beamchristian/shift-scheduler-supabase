@@ -1,4 +1,6 @@
 import { snapshot, transaction } from "./db";
+import { ensureWeek, PUBLISHED_WEEK_MESSAGE } from "./scheduleWeeks";
+import { withWeekNumbers } from "./weeks";
 import { avgRate, dailySales, dayBudget } from "./matrix";
 import { repair, searchFullCover } from "./solver";
 import { breakRule, logicHours, t12 } from "./hours";
@@ -52,10 +54,18 @@ export interface Plan {
 // Builds the schedule for one department.
 // shouldSave = true builds and saves the schedule, using the payroll budget.
 // shouldSave = false is a dry run with no payroll limit. It checks whether the team can cover every required shift.
-// departmentId decides whose data is read and whose schedule is replaced.
-async function plan(shouldSave: boolean, departmentId: number): Promise<Plan> {
-  const departmentSnapshot = await snapshot(departmentId);
+// departmentId and weekStart (the week's Monday) decide whose data is read and which week's schedule is replaced.
+async function plan(
+  shouldSave: boolean,
+  departmentId: number,
+  weekStart: string,
+): Promise<Plan & { weekId: number | null }> {
+  // The week's own forecast, and for a published week its saved payroll %, rate and day weights.
+  const departmentSnapshot = withWeekNumbers(
+    await snapshot(departmentId, weekStart),
+  );
   const settings: Settings = departmentSnapshot.settings;
+  let savedWeekId: number | null = null;
   const breakSettings = breakRule(settings);
 
   // All hour accounting (budget, min and max hours) uses shift hours, or paid hours if that setting is on.
@@ -554,14 +564,17 @@ async function plan(shouldSave: boolean, departmentId: number): Promise<Plan> {
         );
 
   if (shouldSave) {
-    await transaction(async (transactionQuery) => {
-      // Replace only this department's schedule. Other departments are not touched.
-      await transactionQuery("delete from schedule where department_id = $1", [
-        departmentId,
+    savedWeekId = await transaction(async (transactionQuery) => {
+      // The week is made if it is new. A published week is never replaced, even if the page was out of date.
+      const week = await ensureWeek(departmentId, weekStart, transactionQuery);
+      if (week.status === "published") throw new Error(PUBLISHED_WEEK_MESSAGE);
+      // Replace only this week's schedule. Other weeks and other departments are not touched.
+      await transactionQuery("delete from schedule where week_id = $1", [
+        week.id,
       ]);
       if (placedAssignments.length) {
-        // Each new schedule row also records the department it belongs to.
-        const columnsPerRow = 7;
+        // Each new schedule row also records its department and week.
+        const columnsPerRow = 8;
         const parameterValues = placedAssignments.flatMap(
           ({ template, employee }) => [
             template.day,
@@ -571,6 +584,7 @@ async function plan(shouldSave: boolean, departmentId: number): Promise<Plan> {
             template.start,
             template.end,
             departmentId,
+            week.id,
           ],
         );
         const placeholderGroups = placedAssignments
@@ -580,10 +594,11 @@ async function plan(shouldSave: boolean, departmentId: number): Promise<Plan> {
           )
           .join(",");
         await transactionQuery(
-          `insert into schedule (day, template_id, employee_id, name, "start", "end", department_id) values ${placeholderGroups}`,
+          `insert into schedule (day, template_id, employee_id, name, "start", "end", department_id, week_id) values ${placeholderGroups}`,
           parameterValues,
         );
       }
+      return week.id;
     });
   }
 
@@ -829,15 +844,30 @@ async function plan(shouldSave: boolean, departmentId: number): Promise<Plan> {
     needed: slots.length,
     suggestions,
     config: uniqueConfigProblems,
+    weekId: savedWeekId,
   };
 }
 
-// Builds and saves the schedule for one department. Returns the warnings to show the person.
-export async function generate(departmentId: number): Promise<string[]> {
-  return (await plan(true, departmentId)).warnings;
+// Builds and saves one week's schedule for one department. weekStart is the week's Monday.
+// Returns the warnings to show the person, and the id of the saved week.
+// Throws when the week is published.
+export async function generate(
+  departmentId: number,
+  weekStart: string,
+): Promise<{ warnings: string[]; weekId: number }> {
+  const result = await plan(true, departmentId, weekStart);
+  return { warnings: result.warnings, weekId: result.weekId as number };
 }
 
-// Checks one department's staffing without saving anything.
-export function preview(departmentId: number): Promise<Plan> {
-  return plan(false, departmentId);
+// Checks one department's staffing for one week without saving anything.
+export async function preview(
+  departmentId: number,
+  weekStart: string,
+): Promise<Plan> {
+  const { weekId: _unusedWeekId, ...staffingPlan } = await plan(
+    false,
+    departmentId,
+    weekStart,
+  );
+  return staffingPlan;
 }

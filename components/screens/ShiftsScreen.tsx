@@ -34,12 +34,15 @@ const buildShiftColumns = (skillChoices: string[]): ColumnDefinition[] => [
 
 // The Shifts screen: the shift templates for each day, with duplicate support.
 export function ShiftsScreen({
+  weekStart,
   shiftTemplates,
   employees,
   onDataChange,
   highlightedId,
   onRowAdded,
 }: {
+  // The week on screen, as its Monday. Saves reply with that week's data.
+  weekStart: string;
   shiftTemplates: Snapshot["shift_templates"];
   employees: Snapshot["employees"];
   onDataChange: (newSnapshot: Snapshot) => void;
@@ -65,6 +68,7 @@ export function ShiftsScreen({
         people, enter their names in the last column, separated by commas.
       </Heading>
       <EditableTable
+        weekStart={weekStart}
         table='shift_templates'
         columns={buildShiftColumns(teamSkillChoices)}
         rows={asTableRows<TableRow>(shiftTemplates)}

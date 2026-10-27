@@ -1,8 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { buildReport } from "../../lib/report";
 import type { ScheduleRow, Snapshot, StoreHour } from "../../lib/types";
-import { formatMoney, roundTo2 } from "../../lib/ui/format";
+import { DAY_FULL_NAMES, formatMoney, roundTo2 } from "../../lib/ui/format";
 import {
   cardClass,
   fieldClass,
@@ -17,11 +17,15 @@ import { LaborMatrix } from "./schedule/LaborMatrix";
 import { ScheduleGrid } from "./schedule/ScheduleGrid";
 import { ShiftEditor } from "./schedule/ShiftEditor";
 import { buildCoverageNotes } from "./schedule/coverageNotes";
+import { dateOfDay, shortDateLabel, weekLabel } from "../../lib/weeks";
 
-// The Schedule screen: this week's forecast, the budget summary, the staffing check,
+// The Schedule screen for one week: the week picker, the week's forecast, the budget summary, the staffing check,
 // the labor matrix, and the generated schedule.
 export function ScheduleScreen({
   data,
+  weekBar,
+  isLocked,
+  pastWeekQuestion,
   staffingCheck,
   warnings,
   isGenerating,
@@ -33,12 +37,19 @@ export function ScheduleScreen({
   onSaveDayWeight,
 }: {
   data: Snapshot;
+  // The week picker shown at the top of the screen.
+  weekBar: ReactNode;
+  // True when the week is published, so nothing on it can be changed until it is unpublished.
+  isLocked: boolean;
+  // The question to ask before changing a week that is already over, or null for a current or future week.
+  pastWeekQuestion: string | null;
   staffingCheck: StaffingCheck | null;
   warnings: string[];
   isGenerating: boolean;
   swapMessage: { tone: "ok" | "warn"; text: string } | null;
   onGenerate: () => void;
-  onSaveForecast: (forecastText: string) => void;
+  // Returns false when the save was cancelled, so the box goes back to the saved value.
+  onSaveForecast: (forecastText: string) => boolean;
   onSwapClosers: (dayNumber: number) => void;
   onShiftSaved: (reply: Snapshot) => void;
   // Saves one day's weight from the labor matrix.
@@ -47,6 +58,8 @@ export function ScheduleScreen({
   // The shift being edited, and any warnings left by the last saved change.
   const [editingShift, setEditingShift] = useState<ScheduleRow | null>(null);
   const [savedShiftWarnings, setSavedShiftWarnings] = useState<string[]>([]);
+  // The week on screen, as its Monday.
+  const weekStart = data.week.week_start;
   // Figures for the summary tiles, computed from this week's data.
   const report = buildReport(data);
   const rate = report.rate;
@@ -57,8 +70,9 @@ export function ScheduleScreen({
   const scheduledHoursTotal = totals.sched;
   const scheduledCost = totals.schedCost;
   const totalSales = totals.sales;
-  const payrollPercent = Number(data.settings.payroll_pct);
-  const weeklySales = Number(data.settings.weekly_sales);
+  // The week's own forecast and payroll target (a published week keeps the ones it was published with).
+  const payrollPercent = report.payrollPercent;
+  const weeklySales = report.weeklySales;
   const isOverBudget = requiredTotal > allowedTotal;
   // Full-coverage cost as a share of the forecast.
   const requiredCostPercent = weeklySales
@@ -89,33 +103,59 @@ export function ScheduleScreen({
   return (
     <>
       <Heading title='Weekly schedule'>
-        Enter this week's forecast, review what full coverage costs, then
-        generate.
+        Pick the week, enter its forecast, review what full coverage costs,
+        then generate.
       </Heading>
+
+      {weekBar}
+
+      {isLocked && (
+        <div className='mb-4'>
+          <Callout tone='ok'>
+            This week is published, so its schedule, forecast and day weights
+            are locked. To change anything, click Unpublish in the week bar
+            first.
+          </Callout>
+        </div>
+      )}
+      {!isLocked && pastWeekQuestion && (
+        <div className='mb-4'>
+          <Callout tone='warn'>
+            This week is already over. You can still change it, but each
+            change asks you to confirm first.
+          </Callout>
+        </div>
+      )}
 
       <div
         className={`${cardClass} mb-4 flex flex-col gap-3 p-4 sm:flex-row sm:items-end sm:justify-between`}
       >
         <label className='block'>
           <span className='text-sm font-medium text-slate-700'>
-            Forecast sales for this week
+            Forecast sales for {weekLabel(weekStart)}
           </span>
           <div className='relative mt-1 w-full sm:w-52'>
             <span className='pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-400'>
               $
             </span>
             <input
-              className={`${fieldClass} pl-7`}
+              className={`${fieldClass} pl-7 disabled:bg-slate-100 disabled:text-slate-500`}
               type='number'
               inputMode='decimal'
-              defaultValue={data.settings.weekly_sales}
-              onBlur={(blurEvent) => onSaveForecast(blurEvent.target.value)}
+              // The key resets the box when the week or its saved forecast changes.
+              key={`${data.week.week_start}-${weeklySales}`}
+              defaultValue={weeklySales}
+              disabled={isLocked}
+              onBlur={(blurEvent) => {
+                if (!onSaveForecast(blurEvent.target.value))
+                  blurEvent.target.value = String(weeklySales);
+              }}
             />
           </div>
         </label>
         <div className='flex flex-col gap-2 sm:flex-row'>
           <a
-            href='/api/pdf'
+            href={`/api/pdf?week=${weekStart}`}
             target='_blank'
             rel='noopener noreferrer'
             className={`${secondaryButtonClass} w-full sm:w-auto`}
@@ -123,9 +163,10 @@ export function ScheduleScreen({
             Download PDF
           </a>
           <button
-            className={`${primaryButtonClass} w-full sm:w-auto`}
+            className={`${primaryButtonClass} w-full disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto`}
             onClick={onGenerate}
-            disabled={isGenerating}
+            disabled={isGenerating || isLocked}
+            title={isLocked ? "Unpublish this week to generate it again" : undefined}
           >
             {isGenerating ? "Generating…" : "Generate schedule"}
           </button>
@@ -273,18 +314,9 @@ export function ScheduleScreen({
               (person) => person.id === editingShift.employee_id,
             )?.name ?? "Unknown"
           }
-          dayName={
-            [
-              "",
-              "Monday",
-              "Tuesday",
-              "Wednesday",
-              "Thursday",
-              "Friday",
-              "Saturday",
-              "Sunday",
-            ][editingShift.day] ?? ""
-          }
+          weekStart={weekStart}
+          confirmQuestion={pastWeekQuestion}
+          dayName={`${DAY_FULL_NAMES[editingShift.day] ?? ""}, ${shortDateLabel(dateOfDay(weekStart, editingShift.day))}`}
           onClose={() => setEditingShift(null)}
           onSaved={(reply) => {
             setSavedShiftWarnings(reply.warnings);
@@ -295,7 +327,9 @@ export function ScheduleScreen({
       )}
       <LaborMatrix
         report={report}
-        dayWeights={data.store_hours}
+        weekStart={weekStart}
+        isLocked={isLocked}
+        dayWeights={report.dayWeights}
         onSaveDayWeight={onSaveDayWeight}
       />
 
@@ -304,12 +338,15 @@ export function ScheduleScreen({
       </h2>
       {data.schedule.length === 0 && (
         <div className={`${cardClass} p-8 text-center text-sm text-slate-500`}>
-          No schedule yet. Click Generate schedule to build one.
+          No schedule for {weekLabel(weekStart)} yet. Click Generate schedule
+          to build one.
         </div>
       )}
       {data.schedule.length > 0 && (
         <ScheduleGrid
           data={data}
+          weekStart={weekStart}
+          isLocked={isLocked}
           report={report}
           swapMessage={swapMessage}
           onSwapClosers={onSwapClosers}

@@ -21,12 +21,18 @@ interface ShiftCheck {
 // Anyone who can open the schedule can edit a shift.
 export function ShiftEditor({
   shift,
+  weekStart,
+  confirmQuestion,
   personName,
   dayName,
   onClose,
   onSaved,
 }: {
   shift: ScheduleRow;
+  // The week the shift is in, as its Monday. Checks and saves are sent for that week.
+  weekStart: string;
+  // A question to ask before saving (for a week that is already over), or null to save straight away.
+  confirmQuestion: string | null;
   personName: string;
   dayName: string;
   onClose: () => void;
@@ -49,6 +55,7 @@ export function ShiftEditor({
         start: startTime,
         end: endTime,
         dryRun: true,
+        week: weekStart,
       })
         .then((reply) =>
           setCheck({ errors: reply.errors, warnings: reply.warnings }),
@@ -59,7 +66,7 @@ export function ShiftEditor({
         .finally(() => setIsChecking(false));
     }, 300);
     return () => clearTimeout(timer);
-  }, [startTime, endTime, shift.id]);
+  }, [startTime, endTime, shift.id, weekStart]);
 
   const hasChanged = startTime !== shift.start || endTime !== shift.end;
   const hasErrors = !!check && check.errors.length > 0;
@@ -71,14 +78,17 @@ export function ShiftEditor({
     !isChecking &&
     !isSaving;
 
-  // Saves the new times. The page shows the updated schedule and any warnings.
+  // Saves the new times, after asking first when the week is already over. The page shows the updated schedule
+  // and any warnings.
   const save = () => {
+    if (confirmQuestion && !window.confirm(confirmQuestion)) return;
     setIsSaving(true);
     setSaveError(null);
     callApi<Snapshot & { warnings: string[] }>("/api/schedule", {
       id: shift.id,
       start: startTime,
       end: endTime,
+      week: weekStart,
     })
       .then((reply) => onSaved(reply))
       .catch((thrownError: Error) => {

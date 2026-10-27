@@ -31,12 +31,15 @@ const buildEmployeeColumns = (
 
 // The Team screen: the employee list, with notes on skills and shift types.
 export function TeamScreen({
+  weekStart,
   employees,
   shiftTemplates,
   onDataChange,
   highlightedId,
   onRowAdded,
 }: {
+  // The week on screen, as its Monday. Saves reply with that week's data.
+  weekStart: string;
   employees: Snapshot["employees"];
   shiftTemplates: Snapshot["shift_templates"];
   onDataChange: (newSnapshot: Snapshot) => void;
@@ -61,6 +64,7 @@ export function TeamScreen({
         shift types, enter names like Opener or Closer in the last column.
       </Heading>
       <EditableTable
+        weekStart={weekStart}
         table='employees'
         columns={buildEmployeeColumns(suggestedSkills)}
         rows={asTableRows<TableRow>(employees)}

@@ -7,23 +7,38 @@ import {
   snapshot,
   transaction,
 } from "./db";
+import { ensureWeek } from "./scheduleWeeks";
 
 // A record read from an export file, with values of unknown type.
 type LooseRecord = Record<string, unknown>;
 
 // Columns saved for each schedule row in an export file.
-const SCHEDULE_COLUMNS = ["day", "template_id", "employee_id", "name", "start", "end"];
+const SCHEDULE_COLUMNS = [
+  "day",
+  "template_id",
+  "employee_id",
+  "name",
+  "start",
+  "end",
+];
 
-// Tables that hold a department's data. Listed in the order they must be cleared (schedule first).
-const DEPARTMENT_DATA_TABLES = ["schedule", "shift_templates", "employees", "store_hours"];
+// Tables that hold a department's data. Listed in the order they must be cleared (weeks and shifts first).
+const DEPARTMENT_DATA_TABLES = [
+  "schedule",
+  "schedule_weeks",
+  "shift_templates",
+  "employees",
+  "store_hours",
+];
 
-// Builds the export file for one department: all of its data, as one JSON-ready object.
-export async function exportAll(departmentId: number) {
+// Builds the export file for one department and one week: the team, shifts, settings and that week's schedule,
+// as one JSON-ready object. weekStart is the week's Monday.
+export async function exportAll(departmentId: number, weekStart: string) {
   return {
     app: "shift-scheduler",
     version: 1,
     exported_at: new Date().toISOString(),
-    data: await snapshot(departmentId),
+    data: await snapshot(departmentId, weekStart),
   };
 }
 
@@ -58,11 +73,14 @@ async function insertRowsWithNewIds(
 
     parameterValues.push(
       newId,
-      ...columnNames.map((columnName) => coerce(columnName, rowToInsert[columnName])),
+      ...columnNames.map((columnName) =>
+        coerce(columnName, rowToInsert[columnName]),
+      ),
       departmentId,
     );
     const placeholders = allInsertColumns.map(
-      (_, columnIndex) => `$${rowIndex * allInsertColumns.length + columnIndex + 1}`,
+      (_, columnIndex) =>
+        `$${rowIndex * allInsertColumns.length + columnIndex + 1}`,
     );
     return `(${placeholders.join(",")})`;
   });
@@ -78,12 +96,16 @@ async function insertRowsWithNewIds(
   return newIdByFileId;
 }
 
-// Replaces one department's data with the contents of an export file.
+// Replaces one department's data with the contents of an export file. Every saved week is cleared, and the
+// file's schedule goes into the week given (weekStart, its Monday) as a draft.
 // Other departments are not touched. Runs in one transaction, so a bad file changes nothing.
 export async function importAll(
   payload: unknown,
   departmentId: number,
-): Promise<{ ok: true; skippedScheduleRows: number } | { ok: false; error: string }> {
+  weekStart: string,
+): Promise<
+  { ok: true; skippedScheduleRows: number } | { ok: false; error: string }
+> {
   // Check the file's shape before touching the database.
   const fileContent = payload as { app?: string; data?: LooseRecord } | null;
   const exportedData = fileContent?.data;
@@ -98,7 +120,8 @@ export async function importAll(
   // Returns a list of records for one key, or null if the key is missing or is not a list of objects.
   const readRecordList = (key: string): LooseRecord[] | null => {
     const value = exportedData[key];
-    return Array.isArray(value) && value.every((item) => item && typeof item === "object")
+    return Array.isArray(value) &&
+      value.every((item) => item && typeof item === "object")
       ? (value as LooseRecord[])
       : null;
   };
@@ -118,7 +141,8 @@ export async function importAll(
   )
     return {
       ok: false,
-      error: "The file is missing employees, shift templates, day weights or settings.",
+      error:
+        "The file is missing employees, shift templates, day weights or settings.",
     };
 
   // Day numbers must be Monday (1) to Saturday (6).
@@ -138,28 +162,70 @@ export async function importAll(
     await transaction(async (runStatement) => {
       // Clear this department's current rows only.
       for (const tableName of DEPARTMENT_DATA_TABLES)
-        await runStatement(`delete from ${tableName} where department_id = $1`, [departmentId]);
+        await runStatement(
+          `delete from ${tableName} where department_id = $1`,
+          [departmentId],
+        );
 
       const newEmployeeIds = await insertRowsWithNewIds(
-        runStatement, "employees", COLS.employees, employeeRows, departmentId,
+        runStatement,
+        "employees",
+        COLS.employees,
+        employeeRows,
+        departmentId,
       );
       const newTemplateIds = await insertRowsWithNewIds(
-        runStatement, "shift_templates", COLS.shift_templates, templateRows, departmentId,
+        runStatement,
+        "shift_templates",
+        COLS.shift_templates,
+        templateRows,
+        departmentId,
       );
-      await insertRowsWithNewIds(runStatement, "store_hours", COLS.store_hours, storeHourRows, departmentId);
+      await insertRowsWithNewIds(
+        runStatement,
+        "store_hours",
+        COLS.store_hours,
+        storeHourRows,
+        departmentId,
+      );
 
       // Schedule rows point at employees and shift templates by id. Translate those ids to the new ones.
       // A row whose person or shift is not in the file is skipped and counted.
       const translatedScheduleRows = scheduleRows.flatMap((scheduleRow) => {
-        const newEmployeeId = newEmployeeIds.get(Number(scheduleRow.employee_id));
-        const newTemplateId = newTemplateIds.get(Number(scheduleRow.template_id));
+        const newEmployeeId = newEmployeeIds.get(
+          Number(scheduleRow.employee_id),
+        );
+        const newTemplateId = newTemplateIds.get(
+          Number(scheduleRow.template_id),
+        );
         if (newEmployeeId === undefined || newTemplateId === undefined) {
           skippedScheduleRowCount++;
           return [];
         }
-        return [{ ...scheduleRow, employee_id: newEmployeeId, template_id: newTemplateId }];
+        return [
+          {
+            ...scheduleRow,
+            employee_id: newEmployeeId,
+            template_id: newTemplateId,
+          },
+        ];
       });
-      await insertRowsWithNewIds(runStatement, "schedule", SCHEDULE_COLUMNS, translatedScheduleRows, departmentId);
+      // The schedule goes into the chosen week, as a draft that starts with the file's forecast.
+      const week = await ensureWeek(departmentId, weekStart, runStatement);
+      await runStatement(
+        "update schedule_weeks set weekly_sales = $1 where id = $2",
+        [coerce("weekly_sales", settingsRow.weekly_sales), week.id],
+      );
+      await insertRowsWithNewIds(
+        runStatement,
+        "schedule",
+        [...SCHEDULE_COLUMNS, "week_id"],
+        translatedScheduleRows.map((scheduleRow) => ({
+          ...scheduleRow,
+          week_id: week.id,
+        })),
+        departmentId,
+      );
 
       // Settings: keep the current value for anything the file does not include.
       const [currentSettingsRow] = await runStatement<LooseRecord>(

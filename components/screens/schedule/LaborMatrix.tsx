@@ -1,6 +1,7 @@
 "use client";
 import type { Report } from "../../../lib/report";
 import type { StoreHour } from "../../../lib/types";
+import { dateOfDay, shortDateLabel } from "../../../lib/weeks";
 import {
   DAY_SHORT_LABELS,
   formatMoney,
@@ -10,7 +11,7 @@ import { cardClass } from "../../../lib/ui/styles";
 
 // A small number box that lines up with the figures in the column below it.
 const DAY_WEIGHT_INPUT_CLASS =
-  "ml-auto block w-16 rounded-md border border-slate-300 bg-white px-2 py-1 text-right text-sm tabular-nums text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20";
+  "ml-auto block w-16 rounded-md border border-slate-300 bg-white px-2 py-1 text-right text-sm tabular-nums text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:bg-slate-100 disabled:text-slate-500";
 
 // One value in the matrix. Warning values are shown in amber.
 type MatrixCell = { text: string; isWarning?: boolean };
@@ -29,10 +30,13 @@ type MatrixRow = {
 function DayWeightRow({
   days,
   dayWeights,
+  isLocked,
   onSaveDayWeight,
 }: {
   days: Report["days"];
   dayWeights: StoreHour[];
+  // True on a published week, which keeps the weights it was published with.
+  isLocked: boolean;
   onSaveDayWeight: (dayWeightRow: StoreHour, newWeightText: string) => void;
 }) {
   const weightTotal = dayWeights.reduce(
@@ -61,6 +65,7 @@ function DayWeightRow({
               // The key resets the box when a save brings back a new value.
               key={`${dayWeightRow.id}-${dayWeightRow.sales_pct}`}
               className={DAY_WEIGHT_INPUT_CLASS}
+              disabled={isLocked}
               type='number'
               inputMode='decimal'
               step='any'
@@ -90,10 +95,16 @@ function DayWeightRow({
 // The day weight row at the top can be changed here; everything below follows from it.
 export function LaborMatrix({
   report,
+  weekStart,
+  isLocked,
   dayWeights,
   onSaveDayWeight,
 }: {
   report: Report;
+  // The week shown, as its Monday, so each day can show its date.
+  weekStart: string;
+  // True on a published week: its day weights are shown but can't be changed.
+  isLocked: boolean;
   dayWeights: StoreHour[];
   onSaveDayWeight: (dayWeightRow: StoreHour, newWeightText: string) => void;
 }) {
@@ -192,6 +203,8 @@ export function LaborMatrix({
         Day weights split the weekly forecast across the days. They are
         relative, so they don't need to add up to 100. Change one and the
         sales, payroll target and allowed hours for that day update below.
+        The weights are shared by every draft week; a published week keeps
+        the weights it was published with.
       </p>
       <div className={`${cardClass} overflow-x-auto`}>
         <table className='min-w-full text-sm'>
@@ -204,6 +217,9 @@ export function LaborMatrix({
                   className='px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500'
                 >
                   {DAY_SHORT_LABELS[dayRow.day]}
+                  <div className='font-medium normal-case tracking-normal text-slate-400'>
+                    {shortDateLabel(dateOfDay(weekStart, dayRow.day))}
+                  </div>
                 </th>
               ))}
               <th className='px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500'>
@@ -215,6 +231,7 @@ export function LaborMatrix({
             <DayWeightRow
               days={days}
               dayWeights={dayWeights}
+              isLocked={isLocked}
               onSaveDayWeight={onSaveDayWeight}
             />
             {visibleRows.map((matrixRow, rowIndex) => (

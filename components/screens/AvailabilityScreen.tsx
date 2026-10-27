@@ -16,9 +16,12 @@ const AVAILABILITY_COLUMNS: ColumnDefinition[] = [
 
 // The Availability screen: when each person can work, one column per day.
 export function AvailabilityScreen({
+  weekStart,
   employees,
   onDataChange,
 }: {
+  // The week on screen, as its Monday. Saves reply with that week's data.
+  weekStart: string;
   employees: Snapshot["employees"];
   onDataChange: (newSnapshot: Snapshot) => void;
 }) {
@@ -30,6 +33,7 @@ export function AvailabilityScreen({
         fit inside it).
       </Heading>
       <EditableTable
+        weekStart={weekStart}
         table='employees'
         hideActions
         columns={AVAILABILITY_COLUMNS}

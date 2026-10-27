@@ -1,11 +1,13 @@
 import postgres from "postgres";
-import type { Snapshot, TableName } from "./types";
+import type { ScheduleWeek, Snapshot, TableName } from "./types";
 
 // Minimal view of the postgres.js client. Keeping it narrow means the rest of the app never touches its types.
 interface PostgresClient {
   unsafe(sqlText: string, parameterValues?: unknown[]): Promise<unknown[]>;
   begin<TransactionResult>(
-    runInTransaction: (transactionClient: PostgresClient) => Promise<TransactionResult>,
+    runInTransaction: (
+      transactionClient: PostgresClient,
+    ) => Promise<TransactionResult>,
   ): Promise<TransactionResult>;
 }
 
@@ -117,6 +119,7 @@ const WHOLE_NUMBER_COLUMNS = new Set([
   "needed",
   "template_id",
   "employee_id",
+  "week_id",
 ]);
 const DECIMAL_NUMBER_COLUMNS = new Set([
   "weekly_sales",
@@ -135,10 +138,14 @@ const DECIMAL_NUMBER_COLUMNS = new Set([
 
 // Converts one value from the page into the type the column expects.
 // Numeric columns arrive as text, and an empty box means "no value" (null).
-export function coerce(columnName: string, rawValue: unknown): string | number | null {
+export function coerce(
+  columnName: string,
+  rawValue: unknown,
+): string | number | null {
   if (rawValue === undefined || rawValue === null) return null;
   const isNumberColumn =
-    WHOLE_NUMBER_COLUMNS.has(columnName) || DECIMAL_NUMBER_COLUMNS.has(columnName);
+    WHOLE_NUMBER_COLUMNS.has(columnName) ||
+    DECIMAL_NUMBER_COLUMNS.has(columnName);
   if (isNumberColumn) {
     if (String(rawValue).trim() === "") return null;
     const numericValue = Number(rawValue);
@@ -178,7 +185,8 @@ async function seedDepartment(departmentId: number): Promise<void> {
 
 // Makes sure a department has its settings and day weights. Runs once per department per server instance.
 export function ensureDepartmentSeeded(departmentId: number): Promise<void> {
-  if (!globalState._seededDepartments) globalState._seededDepartments = new Map();
+  if (!globalState._seededDepartments)
+    globalState._seededDepartments = new Map();
   const existingSeed = globalState._seededDepartments.get(departmentId);
   if (existingSeed) return existingSeed;
 
@@ -191,18 +199,45 @@ export function ensureDepartmentSeeded(departmentId: number): Promise<void> {
   return newSeed;
 }
 
-// Loads everything the app needs for one department, in one database round trip.
-// Only rows that belong to that department are returned.
-export async function snapshot(departmentId: number): Promise<Snapshot> {
+// The week a snapshot shows when that week has never been saved: a draft with no numbers of its own.
+function unsavedWeek(weekStart: string): ScheduleWeek {
+  return {
+    id: null,
+    week_start: weekStart,
+    status: "draft",
+    weekly_sales: null,
+    payroll_pct: null,
+    rate_override: null,
+    day_weights: null,
+    generated_by: null,
+    generated_at: null,
+    published_by: null,
+    published_at: null,
+  };
+}
+
+// Loads everything the app needs for one department and one week, in one database round trip.
+// Only rows that belong to that department are returned, and only that week's shifts.
+// weekStart is the week's Monday, as "YYYY-MM-DD".
+export async function snapshot(
+  departmentId: number,
+  weekStart: string,
+): Promise<Snapshot> {
   await ensureDepartmentSeeded(departmentId);
-  const [snapshotRow] = await runQuery<Snapshot>(
-    `select
+  const [snapshotRow] = await runQuery<
+    Omit<Snapshot, "week"> & { week: ScheduleWeek | null }
+  >(
+    `with week_row as (
+       select * from schedule_weeks where department_id = $1 and week_start = $2::date
+     )
+     select
       (select to_jsonb(settingsRow) from settings settingsRow where settingsRow.department_id = $1 limit 1) as settings,
       (select coalesce(jsonb_agg(to_jsonb(hourRow) order by hourRow.day), '[]'::jsonb) from store_hours hourRow where hourRow.department_id = $1) as store_hours,
       (select coalesce(jsonb_agg(to_jsonb(employeeRow) order by employeeRow.id), '[]'::jsonb) from employees employeeRow where employeeRow.department_id = $1) as employees,
       (select coalesce(jsonb_agg(to_jsonb(templateRow) order by templateRow.day, templateRow."start", templateRow.name, templateRow.id), '[]'::jsonb) from shift_templates templateRow where templateRow.department_id = $1) as shift_templates,
-      (select coalesce(jsonb_agg(to_jsonb(scheduleRow) order by scheduleRow.id), '[]'::jsonb) from schedule scheduleRow where scheduleRow.department_id = $1) as schedule`,
-    [departmentId],
+      (select coalesce(jsonb_agg(to_jsonb(scheduleRow) order by scheduleRow.id), '[]'::jsonb) from schedule scheduleRow where scheduleRow.week_id = (select id from week_row)) as schedule,
+      (select to_jsonb(week_row) - 'department_id' - 'created_at' from week_row) as week`,
+    [departmentId, weekStart],
   );
-  return snapshotRow;
+  return { ...snapshotRow, week: snapshotRow.week ?? unsavedWeek(weekStart) };
 }

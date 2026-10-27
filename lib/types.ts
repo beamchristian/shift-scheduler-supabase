@@ -90,13 +90,40 @@ export interface ScheduleRow {
   end: string;
 }
 
-// Everything the app needs for one department, loaded in one call.
+// Whether a week's schedule is still being worked on, or is the official one.
+// A published week can't be generated, swapped or edited until it is unpublished.
+export type WeekStatus = "draft" | "published";
+
+// One department's schedule week, Monday to Saturday. A week that has never been saved has no id yet.
+export interface ScheduleWeek {
+  id: number | null;
+  // The week's Monday, as "YYYY-MM-DD".
+  week_start: string;
+  status: WeekStatus;
+  // This week's sales forecast. Blank means none entered yet, so the forecast from Settings is used.
+  weekly_sales: number | null;
+  // Saved when the week is published, and used while it stays published.
+  payroll_pct: number | null;
+  rate_override: number | null;
+  // Day weights keyed by day number, for example { "1": 31 }.
+  day_weights: Record<string, number> | null;
+  generated_by: string | null;
+  generated_at: string | null;
+  published_by: string | null;
+  published_at: string | null;
+}
+
+// Everything the app needs for one department and one week, loaded in one call.
+// settings and store_hours are the department's current values. The week's own numbers are in `week`;
+// withWeekNumbers in lib/weeks.ts combines the two into what the week actually uses.
 export interface Snapshot {
   settings: Settings;
   store_hours: StoreHour[];
   employees: Employee[];
   shift_templates: ShiftTemplate[];
+  // Only this week's shifts.
   schedule: ScheduleRow[];
+  week: ScheduleWeek;
 }
 
 // Tables the page is allowed to edit through the generic save and delete endpoint.

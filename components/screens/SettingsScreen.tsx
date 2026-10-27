@@ -61,12 +61,15 @@ const BREAK_COLUMNS: ColumnDefinition[] = [
 // The Settings screen: payroll, lunch, and export/import of all data.
 // Day weights are set in the labor matrix on the Schedule screen.
 export function SettingsScreen({
+  weekStart,
   data,
   onDataChange,
   isImporting,
   backupMessage,
   onImportFile,
 }: {
+  // The week on screen, as its Monday. Saves reply with that week's data.
+  weekStart: string;
   data: Snapshot;
   onDataChange: (newSnapshot: Snapshot) => void;
   isImporting: boolean;
@@ -84,6 +87,7 @@ export function SettingsScreen({
         Payroll and start window
       </h2>
       <EditableTable
+        weekStart={weekStart}
         table='settings'
         hideActions
         columns={PAYROLL_COLUMNS}
@@ -95,6 +99,7 @@ export function SettingsScreen({
         Lunch breaks and printing
       </h2>
       <EditableTable
+        weekStart={weekStart}
         table='settings'
         hideActions
         columns={BREAK_COLUMNS}
@@ -120,7 +125,7 @@ export function SettingsScreen({
         </p>
         <div className='flex flex-col gap-2 sm:flex-row'>
           <a
-            href='/api/export'
+            href={`/api/export?week=${weekStart}`}
             download
             className={`${primaryButtonClass} w-full sm:w-auto`}
           >

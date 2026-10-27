@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { canManageStore, resolveCaller } from "../../../../lib/access";
 import { errMsg, runQuery } from "../../../../lib/db";
+import { readWeekStart, saveWeekForecast } from "../../../../lib/scheduleWeeks";
 import { loadStoreOverview } from "../../../../lib/storeOverviewData";
 
 export const dynamic = "force-dynamic";
@@ -9,10 +10,13 @@ export const dynamic = "force-dynamic";
 interface SaveWeeklySalesRequest {
   departmentId: number;
   weeklySales: number | string;
+  // The week being changed, as its Monday.
+  week?: string;
 }
 
-// Saves a department's weekly projected sales. The day split keeps the day weights already set in Settings,
-// so only the weekly total changes. Returns the updated store overview. Only company admins and store managers of the same store may change it.
+// Saves a department's projected sales for one week. The day split keeps the department's day weights,
+// so only the weekly total changes. A published week is refused. Returns the updated store overview for that week.
+// Only company admins and store managers of the same store may change it.
 export async function POST(request: Request) {
   const caller = await resolveCaller(request);
   if (caller instanceof Response) return caller;
@@ -22,7 +26,10 @@ export async function POST(request: Request) {
       { status: 403 },
     );
 
-  const { departmentId, weeklySales } = (await request.json()) as SaveWeeklySalesRequest;
+  const requestBody = (await request.json()) as SaveWeeklySalesRequest;
+  const { departmentId, weeklySales } = requestBody;
+  const weekStart = readWeekStart(request, requestBody);
+  if (weekStart instanceof Response) return weekStart;
   const weeklySalesNumber = Number(weeklySales);
   if (!Number.isInteger(Number(departmentId)) || !Number.isFinite(weeklySalesNumber) || weeklySalesNumber < 0)
     return NextResponse.json({ error: "Enter a weekly sales amount of zero or more." }, { status: 400 });
@@ -36,11 +43,9 @@ export async function POST(request: Request) {
     if (!ownershipRows.length)
       return NextResponse.json({ error: "That department is not in your store." }, { status: 403 });
 
-    await runQuery("update settings set weekly_sales = $1 where department_id = $2", [
-      weeklySalesNumber,
-      Number(departmentId),
-    ]);
-    return NextResponse.json(await loadStoreOverview(caller.storeId, caller.storeName));
+    const refusal = await saveWeekForecast(Number(departmentId), weekStart, weeklySalesNumber);
+    if (refusal) return NextResponse.json({ error: refusal }, { status: 409 });
+    return NextResponse.json(await loadStoreOverview(caller.storeId, caller.storeName, weekStart));
   } catch (thrownError) {
     return NextResponse.json({ error: errMsg(thrownError) }, { status: 500 });
   }

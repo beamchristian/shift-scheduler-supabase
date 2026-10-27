@@ -71,6 +71,23 @@ export type StaffingCheck = {
   suggestions: { title: string; detail: string }[];
 };
 
+// One week that has a saved schedule, as the week list shows it.
+export type WeekListing = {
+  // The week's Monday, as "YYYY-MM-DD".
+  week_start: string;
+  status: "draft" | "published";
+  shift_count: number;
+};
+
+// The reply from the week list endpoint: the saved weeks (newest first), and where today falls,
+// all in the store's time zone.
+export type WeekListReply = {
+  weeks: WeekListing[];
+  today: string;
+  currentWeek: string;
+  upcomingWeek: string;
+};
+
 // One person on the access list.
 export type AccessMember = { id: number; email: string; role: string };
 
