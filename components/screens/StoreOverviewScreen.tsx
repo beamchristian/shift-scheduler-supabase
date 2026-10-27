@@ -3,10 +3,10 @@ import { useState, type ReactNode } from "react";
 import { cardClass, fieldClass, secondaryButtonClass } from "../../lib/ui/styles";
 import { DAY_SHORT_LABELS, formatMoney, roundTo2 } from "../../lib/ui/format";
 import type { DayRow } from "../../lib/report";
-import type { StoreDayTotals, StoreOverview } from "../../lib/storeOverview";
+import type { DepartmentWeekStatus, StoreDayTotals, StoreOverview } from "../../lib/storeOverview";
 import { Callout } from "../ui/Callout";
 import { Heading } from "../ui/Heading";
-import { weekLabel } from "../../lib/weeks";
+import { DepartmentStatusPill, StoreWeekPicker } from "./StoreWeekPicker";
 
 // One line of a store table: a label, one value per day, a week total, and optional emphasis.
 type OverviewRow = {
@@ -20,7 +20,7 @@ type OverviewRow = {
 };
 
 // The overview as the screen receives it: the store overview, plus the store's name and saved payroll target.
-type OverviewData = StoreOverview & { storeName: string; weekStart?: string; storePayrollPercent: number | null };
+type OverviewData = StoreOverview & { storeName: string; weekStart: string; storePayrollPercent: number | null };
 
 // Formats an hours figure with at most two decimals, for example "7.5".
 const formatHoursText = (hours: number) => String(roundTo2(hours));
@@ -200,16 +200,19 @@ function MatrixTable({ rows, header }: { rows: OverviewRow[]; header?: ReactNode
   );
 }
 
-// The bar above one department's table: its name, and the weekly projected sales box with its save button.
-// Changing the total keeps the day split from Settings.
+// The bar above one department's table: its name, its schedule status for the week, and the weekly projected
+// sales box with its save button. Changing the total keeps the day split from the day weights.
+// A published week's forecast is locked, so the box is turned off until the week is unpublished.
 function DepartmentSalesBar({
   departmentName,
+  weekStatus,
   weeklySalesDefault,
   isSaving,
   saveError,
   onSave,
 }: {
   departmentName: string;
+  weekStatus: DepartmentWeekStatus;
   weeklySalesDefault: number;
   isSaving: boolean;
   saveError: string | undefined;
@@ -221,12 +224,20 @@ function DepartmentSalesBar({
   const typedWeeklySales = Number(weeklySalesText);
   const isValidAmount = weeklySalesText.trim() !== "" && Number.isFinite(typedWeeklySales) && typedWeeklySales >= 0;
   const hasChanged = isValidAmount && Math.round(typedWeeklySales) !== Math.round(weeklySalesDefault);
+  const isLocked = weekStatus === "published";
 
   return (
     <div className='flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5'>
       <div>
-        <h3 className='text-sm font-semibold text-slate-900'>{departmentName}</h3>
-        <p className='text-xs text-slate-500'>Each day gets its share from the day weights in the Schedule screen's labor matrix.</p>
+        <div className='flex flex-wrap items-center gap-2'>
+          <h3 className='text-sm font-semibold text-slate-900'>{departmentName}</h3>
+          <DepartmentStatusPill status={weekStatus} />
+        </div>
+        <p className='text-xs text-slate-500'>
+          {isLocked
+            ? "This week is published, so its sales are locked. Unpublish it on the Schedule screen to change them."
+            : "Each day gets its share from the day weights in the Schedule screen's labor matrix."}
+        </p>
       </div>
       <div className='flex items-center gap-2 whitespace-nowrap'>
         <span className='text-xs font-medium text-slate-600'>Weekly sales</span>
@@ -238,6 +249,7 @@ function DepartmentSalesBar({
             step='100'
             inputMode='decimal'
             aria-label={`${departmentName} weekly projected sales`}
+            disabled={isLocked}
             value={weeklySalesText}
             onChange={(changeEvent) => {
               setJustSaved(false);
@@ -247,7 +259,7 @@ function DepartmentSalesBar({
         </div>
         <button
           className={`${secondaryButtonClass} px-3 py-1.5`}
-          disabled={!hasChanged || isSaving}
+          disabled={!hasChanged || isSaving || isLocked}
           onClick={() => onSave(typedWeeklySales).then(() => setJustSaved(true)).catch(() => undefined)}
         >
           {isSaving ? "Saving…" : "Save"}
@@ -262,18 +274,29 @@ function DepartmentSalesBar({
   );
 }
 
-// The store overview screen: every department added together by day, the store payroll check,
-// and each department's own projected sales and figures.
+// The store overview screen: the week picker, every department added together by day, the store payroll check,
+// and each department's schedule status, projected sales and figures for the week.
 export function StoreOverviewScreen({
   overview,
   storeName,
   loadError,
+  weekStart,
+  today,
+  currentWeek,
+  upcomingWeek,
+  onChangeWeek,
   onSaveDepartmentSales,
   onSaveStorePayroll,
 }: {
   overview: OverviewData | null;
   storeName: string | undefined;
   loadError: string | null;
+  // The week picked, shared with the Schedule screen, and today's date and the two weeks around it.
+  weekStart: string;
+  today: string;
+  currentWeek: string;
+  upcomingWeek: string;
+  onChangeWeek: (weekStart: string) => void;
   // Saves one department's weekly projected sales, and shows the overview it sends back.
   onSaveDepartmentSales: (departmentId: number, weeklySales: number) => Promise<unknown>;
   // Saves the store payroll target, and shows the overview it sends back. Blank clears it.
@@ -288,10 +311,22 @@ export function StoreOverviewScreen({
   const [savingDepartmentId, setSavingDepartmentId] = useState<number | null>(null);
   const [saveErrors, setSaveErrors] = useState<Record<number, string>>({});
 
+  const weekPicker = (
+    <StoreWeekPicker
+      weekStart={weekStart}
+      today={today}
+      currentWeek={currentWeek}
+      upcomingWeek={upcomingWeek}
+      isLoading={overview?.weekStart !== weekStart}
+      departmentStatuses={overview?.departments.map((department) => department.weekStatus) ?? []}
+      onChangeWeek={onChangeWeek}
+    />
+  );
   if (loadError)
     return (
       <>
         <Heading title='Store overview' />
+        {weekPicker}
         <Callout tone='warn'>{loadError}</Callout>
       </>
     );
@@ -299,6 +334,7 @@ export function StoreOverviewScreen({
     return (
       <>
         <Heading title='Store overview' />
+        {weekPicker}
         <p className='text-sm text-slate-500'>Loading…</p>
       </>
     );
@@ -339,15 +375,11 @@ export function StoreOverviewScreen({
   return (
     <>
       <Heading title={storeName ? `Store overview: ${storeName}` : "Store overview"}>
-        {overview.weekStart && (
-          <span className='mb-1 block font-semibold text-slate-800'>
-            Week of {weekLabel(overview.weekStart)}. Change the week on the Schedule screen.
-          </span>
-        )}
         Every department in the store, added together by day. Set the store payroll
         target to see whether total scheduled payroll is over or under it. Each
         department's weekly projected sales can be changed in its table.
       </Heading>
+      {weekPicker}
 
       <h2 className='mb-2 mt-6 text-sm font-semibold text-slate-700'>Whole store</h2>
       <MatrixTable rows={storeTotalRows(overview.days, overview.totals)} />
@@ -409,8 +441,9 @@ export function StoreOverviewScreen({
                 rows={departmentRows(department.days)}
                 header={
                   <DepartmentSalesBar
-                    key={`${department.departmentId}-${Math.round(department.weeklySales)}`}
+                    key={`${department.departmentId}-${overview.weekStart}-${Math.round(department.weeklySales)}`}
                     departmentName={department.departmentName}
+                    weekStatus={department.weekStatus}
                     weeklySalesDefault={department.weeklySales || departmentSales}
                     isSaving={savingDepartmentId === department.departmentId}
                     saveError={saveErrors[department.departmentId] || undefined}

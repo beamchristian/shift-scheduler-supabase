@@ -4,13 +4,13 @@ import { recordAuditEntry } from "../../../lib/audit";
 import { snapshot } from "../../../lib/db";
 import { importAll } from "../../../lib/backup";
 import { readWeekStart } from "../../../lib/scheduleWeeks";
-import { weekLabel } from "../../../lib/weeks";
 
 export const dynamic = "force-dynamic";
 
-// Replaces the active department's data with an uploaded export file. Every saved week is cleared, and the file's
-// schedule goes into the week in "?week=YYYY-MM-DD" (or the upcoming week) as a draft.
-// Only company admins and store managers, since this replaces everything in the department.
+// Replaces the active department's data with an uploaded export file, including every saved week.
+// An older file that holds only one schedule puts it into the week in "?week=YYYY-MM-DD" (or the upcoming week)
+// as a draft. Only company admins and store managers, since this replaces everything in the department.
+// Returns that week's snapshot, plus how many weeks were restored and how many shifts were skipped.
 export async function POST(request: Request) {
   const caller = await resolveCaller(request, { accessManagersOnly: true });
   if (caller instanceof Response) return caller;
@@ -31,7 +31,11 @@ export async function POST(request: Request) {
     caller.departmentId,
     caller.email,
     "Imported backup",
-    `Replaced employees, shifts, settings and every week; the file's schedule is now ${weekLabel(weekStart)}`,
+    `Replaced employees, shifts, settings and every week; restored ${importResult.importedWeeks} week${importResult.importedWeeks === 1 ? "" : "s"}`,
   );
-  return NextResponse.json(await snapshot(caller.departmentId, weekStart));
+  return NextResponse.json({
+    ...(await snapshot(caller.departmentId, weekStart)),
+    importedWeeks: importResult.importedWeeks,
+    skippedScheduleRows: importResult.skippedScheduleRows,
+  });
 }

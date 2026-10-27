@@ -3,8 +3,16 @@ import { buildReport } from "./report";
 import {
   buildStoreOverview,
   type DepartmentReport,
+  type DepartmentWeekStatus,
   type StoreOverview,
 } from "./storeOverview";
+import type { Snapshot } from "./types";
+
+// Where a department's schedule for the week stands: published, a draft with shifts, or nothing saved yet.
+function weekStatusOf(departmentSnapshot: Snapshot): DepartmentWeekStatus {
+  if (departmentSnapshot.week.status === "published") return "published";
+  return departmentSnapshot.schedule.length ? "draft" : "empty";
+}
 
 // The store overview as the screen shows it: the store's name, the week shown, and the saved payroll target,
 // plus the combined figures.
@@ -28,11 +36,13 @@ export async function loadStoreOverview(
   );
   const departmentReports: DepartmentReport[] = [];
   for (const departmentRow of departmentRows) {
-    const report = buildReport(await snapshot(departmentRow.id, weekStart));
+    const departmentSnapshot = await snapshot(departmentRow.id, weekStart);
+    const report = buildReport(departmentSnapshot);
     departmentReports.push({
       departmentId: departmentRow.id,
       departmentName: departmentRow.name,
       weeklySales: report.weeklySales,
+      weekStatus: weekStatusOf(departmentSnapshot),
       report,
     });
   }

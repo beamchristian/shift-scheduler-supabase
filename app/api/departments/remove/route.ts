@@ -29,11 +29,12 @@ export async function POST(request: Request) {
     );
 
   try {
-    // The rows that point at the department go first. Its member list and audit log are removed
-    // by the database when the department row is deleted.
+    // The rows that point at the department go first: its shifts, then its saved weeks, then the rest.
+    // Its member list and audit log are removed by the database when the department row is deleted.
     await transaction(async (transactionQuery) => {
       const departmentId = caller.departmentId;
       await transactionQuery("delete from schedule where department_id = $1", [departmentId]);
+      await transactionQuery("delete from schedule_weeks where department_id = $1", [departmentId]);
       await transactionQuery("delete from shift_templates where department_id = $1", [departmentId]);
       await transactionQuery("delete from employees where department_id = $1", [departmentId]);
       await transactionQuery("delete from store_hours where department_id = $1", [departmentId]);

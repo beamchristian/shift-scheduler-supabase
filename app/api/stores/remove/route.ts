@@ -50,6 +50,7 @@ export async function POST(request: Request) {
       const storeId = caller.storeId;
       const departmentIdsSql = "select id from departments where store_id = $1";
       await transactionQuery(`delete from schedule where department_id in (${departmentIdsSql})`, [storeId]);
+      await transactionQuery(`delete from schedule_weeks where department_id in (${departmentIdsSql})`, [storeId]);
       await transactionQuery(`delete from shift_templates where department_id in (${departmentIdsSql})`, [storeId]);
       await transactionQuery(`delete from employees where department_id in (${departmentIdsSql})`, [storeId]);
       await transactionQuery(`delete from store_hours where department_id in (${departmentIdsSql})`, [storeId]);

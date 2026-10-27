@@ -107,8 +107,24 @@ Changing a template changes the "to fully staff" hours. Changing one person's sh
 
 - **Store and payroll**: weekly sales, payroll percentage, the average hourly rate, break rules, and whether
   paid hours are counted.
-- **Backup and transfer**: export this department's data to a file, or import one.
+- **Backup and transfer**: export this department's data to a file, or import one. The file holds every saved
+  week, with its status (Draft or Published) and schedule. Importing replaces everything, every week included.
+  An older backup made before weeks were tracked holds one schedule, which comes in as a draft for the week on
+  screen.
 - **Recent changes**: the history of changes in this department, with who made them and when.
+
+## Store overview
+
+Store managers and company admins see every department in the store added together, for one week.
+
+- The week bar at the top works like the Schedule screen's: **◀ / ▶**, **This week** and **Next week**. It shares
+  the week with the Schedule screen, so switching between the two keeps the same week.
+- Under the week, a line counts the departments that have published, drafted, or not yet made that week's
+  schedule. Each department's table shows its own label: **Published**, **Draft** or **No schedule yet**.
+- **Weekly sales** for each department can be changed here for a draft week. A published week's sales are
+  locked until that department unpublishes it.
+- **Store payroll target**: enter a percentage and save it to see whether the store's total scheduled payroll
+  is over or under it, day by day.
 
 ## Access (who can work here)
 
@@ -136,6 +152,7 @@ Sections run from the widest access to the narrowest.
 - **Planning next week:** Schedule opens on next week. Enter the forecast > Generate > check it > Publish schedule.
 - **Someone calls out on a published week:** Schedule > Unpublish > swap the closer or change their shift >
   Publish schedule again.
+- **Checking every department is ready:** Store overview > Next week > look for any Draft or No schedule yet.
 - **Someone calls out:** Schedule > swap the closer for that day, or click their shift and change or clear it.
 - **Someone is leaving early:** Schedule > click their shift > change the end time > read the warnings > save.
 - **A new employee starts:** create their login in Supabase, then Team > add them, then Availability.

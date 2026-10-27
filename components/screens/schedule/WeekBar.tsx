@@ -14,8 +14,8 @@ const PILL_CLASSES = {
   here: "bg-indigo-50 text-indigo-700 ring-indigo-200",
 };
 
-// A small rounded label, such as "Published" or "This week".
-function Pill({ tone, children }: { tone: keyof typeof PILL_CLASSES; children: string }) {
+// A small rounded label, such as "Published" or "This week". The store overview uses it too.
+export function Pill({ tone, children }: { tone: keyof typeof PILL_CLASSES; children: string }) {
   return (
     <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset ${PILL_CLASSES[tone]}`}>
       {children}

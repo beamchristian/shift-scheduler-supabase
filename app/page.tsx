@@ -20,7 +20,7 @@ import type {
 } from "../components/types";
 import type { Snapshot, StoreHour, TableName } from "../lib/types";
 import { callApi } from "../lib/ui/format";
-import { isPastWeek, isWeekStart, todayInStore, upcomingWeekStart, weekLabel } from "../lib/weeks";
+import { currentWeekStart, isPastWeek, isWeekStart, todayInStore, upcomingWeekStart, weekLabel } from "../lib/weeks";
 import type { StoreOverview } from "../lib/storeOverview";
 import { visibleTabsFor } from "../components/types";
 
@@ -32,6 +32,19 @@ type StoreOverviewReply = StoreOverview & { storeName: string; weekStart: string
 
 // The reply from the swap-closers endpoint: the new data, whether the swap worked, and a message to show.
 type SwapReply = Snapshot & { ok: boolean; message: string };
+
+// The reply from the import endpoint: the shown week's data, how many weeks the file restored,
+// and how many shifts were left out because their person or shift was not in the file.
+type ImportReply = Snapshot & { importedWeeks: number; skippedScheduleRows: number };
+
+// The message shown after an import, for example "Imported 12 employees, 30 shift templates and 4 saved weeks."
+function importSummary(importedData: ImportReply): string {
+  const weekText = `${importedData.importedWeeks} saved week${importedData.importedWeeks === 1 ? "" : "s"}`;
+  const skippedText = importedData.skippedScheduleRows
+    ? ` ${importedData.skippedScheduleRows} shift${importedData.skippedScheduleRows === 1 ? " was" : "s were"} left out because the person or shift was not in the file.`
+    : "";
+  return `Imported ${importedData.employees.length} employees, ${importedData.shift_templates.length} shift templates and ${weekText}.${skippedText}`;
+}
 
 // The week to open first: the one in the address ("?week=YYYY-MM-DD") so a refresh stays put,
 // otherwise the upcoming week.
@@ -186,14 +199,19 @@ export default function Page() {
   useEffect(() => {
     if (currentTab === "Access") requestTeam();
   }, [currentTab]);
+  // The week of the last store overview asked for, so a slow reply for an older week is ignored.
+  const latestOverviewWeek = useRef(weekStart);
   // Loads the store overview for the week on screen. Errors are shown on the screen instead of being thrown.
-  const loadStoreOverview = () =>
-    callApi<StoreOverviewReply>(`/api/store-overview?week=${weekStart}`)
+  const loadStoreOverview = () => {
+    latestOverviewWeek.current = weekStart;
+    return callApi<StoreOverviewReply>(`/api/store-overview?week=${weekStart}`)
       .then((overviewReply) => {
+        if (overviewReply.weekStart !== latestOverviewWeek.current) return;
         setStoreOverview(overviewReply);
         setStoreOverviewError(null);
       })
       .catch((thrownError: Error) => setStoreOverviewError(thrownError.message));
+  };
   // Loads the store overview each time its screen opens, so the figures are current.
   useEffect(() => {
     if (currentTab === "Store overview") loadStoreOverview();
@@ -318,7 +336,7 @@ export default function Page() {
     }
     if (
       !window.confirm(
-        `Importing replaces ALL current employees, shifts and settings, and clears EVERY saved week. The file's schedule becomes a draft for ${weekLabel(shownWeek)}. Export first if you want a backup. Continue?`,
+        `Importing replaces ALL current employees, shifts, settings and EVERY saved week with the ones in the file. (An older backup holds only one schedule; it becomes a draft for ${weekLabel(shownWeek)}.) Export first if you want a backup. Continue?`,
       )
     )
       return;
@@ -328,13 +346,13 @@ export default function Page() {
       text: "Importing. This can take a little while on a slow connection, so please do not click again.",
     });
     try {
-      const importedData = await callApi<Snapshot>(`/api/import?week=${shownWeek}`, parsedBackup);
+      const importedData = await callApi<ImportReply>(`/api/import?week=${shownWeek}`, parsedBackup);
       setData(importedData);
       loadWeekList();
       setScheduleWarnings([]);
       setBackupMessage({
         tone: "ok",
-        text: `Imported ${importedData.employees.length} employees, ${importedData.shift_templates.length} shift templates and ${importedData.schedule.length} scheduled shifts.`,
+        text: importSummary(importedData),
       });
     } catch (thrownError) {
       setBackupMessage({ tone: "warn", text: (thrownError as Error).message });
@@ -417,7 +435,7 @@ export default function Page() {
                 hasShifts={data.schedule.length > 0}
                 savedWeeks={weekList?.weeks ?? []}
                 today={weekList?.today ?? data.week.week_start}
-                currentWeek={weekList?.currentWeek ?? ""}
+                currentWeek={weekList?.currentWeek ?? currentWeekStart()}
                 upcomingWeek={weekList?.upcomingWeek ?? upcomingWeekStart()}
                 isLoading={isWeekLoading}
                 isChangingStatus={isChangingStatus}
@@ -504,6 +522,11 @@ export default function Page() {
             overview={storeOverview}
             storeName={currentUser?.storeName}
             loadError={storeOverviewError}
+            weekStart={weekStart}
+            today={weekList?.today ?? todayInStore()}
+            currentWeek={weekList?.currentWeek ?? currentWeekStart()}
+            upcomingWeek={weekList?.upcomingWeek ?? upcomingWeekStart()}
+            onChangeWeek={changeWeek}
             onSaveDepartmentSales={saveDepartmentSales}
             onSaveStorePayroll={saveStorePayroll}
           />

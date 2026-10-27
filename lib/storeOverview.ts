@@ -1,11 +1,15 @@
 import type { DayRow, Report } from "./report";
 
+// Where one department's schedule for the week stands: published, a draft, or nothing saved yet.
+export type DepartmentWeekStatus = "published" | "draft" | "empty";
+
 // One department's labor report, with its name, for combining into the store view.
 export interface DepartmentReport {
   departmentId: number;
   departmentName: string;
   // The weekly forecast saved on the Schedule screen for this department.
   weeklySales: number;
+  weekStatus: DepartmentWeekStatus;
   report: Report;
 }
 
@@ -27,6 +31,7 @@ export interface DepartmentBreakdown {
   departmentName: string;
   // The weekly forecast saved on the Schedule screen.
   weeklySales: number;
+  weekStatus: DepartmentWeekStatus;
   days: DayRow[];
   rate: number;
 }
@@ -99,10 +104,11 @@ export function buildStoreOverview(departmentReports: DepartmentReport[]): Store
   return {
     days,
     totals,
-    departments: departmentReports.map(({ departmentId, departmentName, weeklySales, report }) => ({
+    departments: departmentReports.map(({ departmentId, departmentName, weeklySales, weekStatus, report }) => ({
       departmentId,
       departmentName,
       weeklySales,
+      weekStatus,
       days: report.days,
       rate: report.rate,
     })),
