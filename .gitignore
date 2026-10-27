@@ -1,0 +1,8 @@
+node_modules
+.next
+*.db
+*.db-*
+.env
+.env*.local
+.vercel
+CLAUDE.local.md
