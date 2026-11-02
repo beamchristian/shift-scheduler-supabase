@@ -15,6 +15,9 @@ export interface Settings {
   fill_extra: number | string | null;
   // Default weekly closing limit for people who do not have their own.
   max_closes: number | string | null;
+  // Closing time as "HH:MM". A shift that ends at or after it is a closing shift, on every day.
+  // Blank means each day uses the latest end time of its shift templates.
+  closing_time?: string | null;
   // Average hourly rate, in dollars. Used for every person in the department.
   rate_override: number | string | null;
   // Lunch break rule: length in minutes, shift length after which it applies, and whether it is unpaid.
@@ -29,7 +32,7 @@ export interface Settings {
 
 // The day weight for one day of the week: its share of the week's sales.
 // Stored in the store_hours table. Its open and close columns are no longer used:
-// closing time now comes from each day's latest shift template.
+// closing time comes from settings.closing_time, or each day's latest shift template when that is blank.
 export interface StoreHour {
   id: number;
   // 1 = Monday through 6 = Saturday.

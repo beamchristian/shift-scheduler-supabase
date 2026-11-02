@@ -69,11 +69,10 @@ export const formatTime12 = (timeText: string, useShortForm = false) => {
   return `${hourOf12}${minuteText}${meridiemText}`;
 };
 
-// Picks the chip colors for a shift by its name: opening, closing, or anything else.
-export const shiftChipClasses = (shiftName: string) => {
-  const lowerCaseName = shiftName.toLowerCase();
-  if (lowerCaseName.includes("open")) return "bg-amber-50 text-amber-900 ring-amber-200";
-  if (lowerCaseName.includes("clos")) return "bg-indigo-50 text-indigo-900 ring-indigo-200";
+// Picks the chip colors for a shift by its kind (see shiftKindFinder in lib/rules.ts): opening, closing, or other.
+export const shiftChipClasses = (shiftKind: "open" | "close" | "other") => {
+  if (shiftKind === "open") return "bg-amber-50 text-amber-900 ring-amber-200";
+  if (shiftKind === "close") return "bg-indigo-50 text-indigo-900 ring-indigo-200";
   return "bg-emerald-50 text-emerald-900 ring-emerald-200";
 };
 

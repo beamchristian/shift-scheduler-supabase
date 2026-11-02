@@ -7,6 +7,7 @@ import {
 } from "pdf-lib";
 import { t12 } from "./hours";
 import { buildReport } from "./report";
+import { shiftKindFinder } from "./rules";
 import { dateOfDay, shortDateLabel, weekLabel } from "./weeks";
 import type { Snapshot } from "./types";
 
@@ -56,20 +57,16 @@ const formatMoney = (amount: number) =>
   "$" + Math.round(amount).toLocaleString("en-US");
 // Rounds to two decimals for hours, without trailing zeros, for example "7.5" or "8".
 const formatHours = (hours: number) => String(+hours.toFixed(2));
-// Picks the box color for a shift by its name: opening, closing, or anything else.
-const shiftFillColor = (shiftName: string) => {
-  const lowerCaseName = shiftName.toLowerCase();
-  return lowerCaseName.includes("open")
-    ? SHIFT_FILLS.open
-    : lowerCaseName.includes("clos")
-      ? SHIFT_FILLS.close
-      : SHIFT_FILLS.other;
-};
 
 // Builds the printable schedule for one department: the labor matrix, the schedule grid, and footers.
 // Returns the PDF file as bytes.
 export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
   const report = buildReport(snapshot);
+  // Whether each shift is an opening, closing or other shift, from its times. Sets the box color.
+  const shiftKindOf = shiftKindFinder(
+    snapshot.shift_templates,
+    snapshot.settings.closing_time,
+  );
   const { rule: breakRuleInUse, rate: hourlyRate, totals } = report;
   const pdfDocument = await PDFDocument.create();
   const regularFont = await pdfDocument.embedFont(StandardFonts.Helvetica);
@@ -571,7 +568,7 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
           currentTop + 2,
           SHIFT_COLUMN_WIDTH - 4,
           EMPLOYEE_ROW_HEIGHT - 4,
-          shiftFillColor(shiftForDay.name),
+          SHIFT_FILLS[shiftKindOf(shiftForDay)],
         );
         drawText(
           shiftForDay.name,

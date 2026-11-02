@@ -68,6 +68,8 @@ create table if not exists settings (
   fill_extra double precision default 1,
   rate_override double precision default 21.15,
   max_closes double precision default 3,
+  -- A shift ending at or after this time ("HH:MM") is a closing shift. Blank uses each day's latest template end.
+  closing_time text,
   break_minutes double precision default 30,
   break_after double precision default 5,
   breaks_unpaid double precision default 1,

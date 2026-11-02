@@ -30,11 +30,13 @@ const MAX_PEOPLE_LISTED = 4;
 const HOURS_TOLERANCE = 1e-9;
 
 // One person's situation at the moment a shift was left open:
-// the hours they already work this week, and the shift they already work that day (null when free that day).
+// the hours they already work this week, the shift they already work that day (null when free that day),
+// and whether the shift is a close while their closing limit is 0.
 export interface PersonForShift {
   employee: Employee;
   hoursThisWeek: number;
   shiftOnSameDay: { name: string; start: string; end: string } | null;
+  neverCloses: boolean;
 }
 
 // Formats minutes since midnight as a 12-hour time, for example "6:30 AM".
@@ -83,7 +85,7 @@ function availabilityProblem(
 }
 
 // True when nothing about the person themselves stops them taking the shift: their shift types allow it,
-// they are available, they are free that day, they have the skill, and the hours fit under their max.
+// they are available, they may close (when it is a close), they are free that day, they have the skill, and the hours fit under their max.
 // "Only these people" is not checked, so this finds who could step in if that list were changed.
 function couldTakeShift(
   person: PersonForShift,
@@ -96,6 +98,7 @@ function couldTakeShift(
     (!allowedShiftNames.length ||
       allowedShiftNames.includes(shiftTemplate.name.toLowerCase().trim())) &&
     availStatus(person.employee, shiftTemplate).ok &&
+    !person.neverCloses &&
     !person.shiftOnSameDay &&
     !lacksSkill(person.employee, shiftTemplate) &&
     maxHoursValue !== null &&
@@ -141,6 +144,9 @@ function personProblem(
 
   const availabilityText = availabilityProblem(employee, shiftTemplate);
   if (availabilityText) return availabilityText;
+
+  if (person.neverCloses)
+    return `${employee.name} has max closes set to 0 on the Team screen, so they never close`;
 
   if (person.shiftOnSameDay)
     return `${employee.name} already works ${person.shiftOnSameDay.name} (${t12(person.shiftOnSameDay.start)} to ${t12(person.shiftOnSameDay.end)}) that day`;

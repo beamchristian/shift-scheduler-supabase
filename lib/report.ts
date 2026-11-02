@@ -69,8 +69,11 @@ export function buildReport(departmentSnapshot: Snapshot): Report {
     snapshot.shift_templates,
     breakSettings,
   );
-  // Closing time for each day: the latest end time among that day's shift templates.
-  const closingTimes = closingTimesByDay(snapshot.shift_templates);
+  // Closing time for each day: the time in Settings, or the latest end time among that day's shift templates.
+  const closingTimes = closingTimesByDay(
+    snapshot.shift_templates,
+    snapshot.settings.closing_time,
+  );
   // Picks the main figure and the reference figure. The main one depends on the "count paid hours" setting.
   const pickMainAndReference = (shiftFigure: number, paidFigure: number) =>
     breakSettings.countPaid

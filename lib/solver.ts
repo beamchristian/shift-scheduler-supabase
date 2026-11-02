@@ -35,15 +35,75 @@ export function searchFullCover(
   stepLimit = 400000,
   timeLimitMs = 1500,
 ): boolean {
+  const currentlyCovered = assignedEmployeeBySlot.filter(
+    (holderIndex) => holderIndex >= 0,
+  ).length;
+  if (currentlyCovered === shiftSlots.length) return false;
+  return searchAssignment(
+    shiftSlots,
+    maxHours,
+    allowedMatrix,
+    assignedEmployeeBySlot,
+    hourBudget,
+    preferences,
+    { closingLimitsAreHard: false, coverageToBeat: currentlyCovered },
+    stepLimit,
+    timeLimitMs,
+  );
+}
+
+// Searches for an assignment that covers at least as many shifts as the current one while keeping
+// everyone within their closing limit. The one-move-at-a-time cleanup in generate.ts gets stuck when
+// taking a close off someone needs several people's weeks reshuffled at once, for example when the
+// person over their limit is too close to their max hours to trade a closing shift for a longer opener.
+// Same hard rules and arguments as searchFullCover. Replaces assignedEmployeeBySlot in place only when
+// it finds such an assignment. Returns true when it did.
+export function searchWithinClosingLimits(
+  shiftSlots: Slot[],
+  maxHours: number[],
+  allowedMatrix: boolean[][],
+  assignedEmployeeBySlot: number[],
+  hourBudget: number,
+  preferences: SearchPreferences,
+  stepLimit = 400000,
+  timeLimitMs = 1500,
+): boolean {
+  const currentlyCovered = assignedEmployeeBySlot.filter(
+    (holderIndex) => holderIndex >= 0,
+  ).length;
+  return searchAssignment(
+    shiftSlots,
+    maxHours,
+    allowedMatrix,
+    assignedEmployeeBySlot,
+    hourBudget,
+    preferences,
+    { closingLimitsAreHard: true, coverageToBeat: currentlyCovered - 1 },
+    stepLimit,
+    timeLimitMs,
+  );
+}
+
+// The shared search behind searchFullCover and searchWithinClosingLimits.
+// closingLimitsAreHard: when true, nobody may be given a close past their limit.
+// coverageToBeat: a result must cover more shifts than this to replace the current assignment.
+// Returns true when assignedEmployeeBySlot was replaced.
+function searchAssignment(
+  shiftSlots: Slot[],
+  maxHours: number[],
+  allowedMatrix: boolean[][],
+  assignedEmployeeBySlot: number[],
+  hourBudget: number,
+  preferences: SearchPreferences,
+  searchRules: { closingLimitsAreHard: boolean; coverageToBeat: number },
+  stepLimit: number,
+  timeLimitMs: number,
+): boolean {
   const stopAt = Date.now() + timeLimitMs;
   let isOutOfTime = false;
   const HOURS_TOLERANCE = 1e-9;
   const employeeCount = maxHours.length;
   const slotCount = shiftSlots.length;
-  const currentlyCovered = assignedEmployeeBySlot.filter(
-    (holderIndex) => holderIndex >= 0,
-  ).length;
-  if (currentlyCovered === slotCount) return false;
 
   // Running state for the search: each person's hours, closes and days, and the hours used overall.
   const hoursByEmployee = new Array(employeeCount).fill(0);
@@ -54,7 +114,7 @@ export function searchFullCover(
   );
   const trialAssignment = new Array(slotCount).fill(-1);
   let hoursUsed = 0;
-  let bestCovered = currentlyCovered;
+  let bestCovered = searchRules.coverageToBeat;
   let bestAssignment: number[] | null = null;
   let stepCount = 0;
 
@@ -64,7 +124,13 @@ export function searchFullCover(
     !daysByEmployee[employeeIndex].has(shiftSlots[slotIndex].day) &&
     hoursByEmployee[employeeIndex] + shiftSlots[slotIndex].len <=
       maxHours[employeeIndex] + HOURS_TOLERANCE &&
-    hoursUsed + shiftSlots[slotIndex].len <= hourBudget + HOURS_TOLERANCE;
+    hoursUsed + shiftSlots[slotIndex].len <= hourBudget + HOURS_TOLERANCE &&
+    !(
+      searchRules.closingLimitsAreHard &&
+      preferences.isClosingSlot[slotIndex] &&
+      closesByEmployee[employeeIndex] >=
+        preferences.closingLimits[employeeIndex]
+    );
 
   // Lower is tried first: people still under their minimum, then people with closes to spare, then the least busy.
   const tryOrderScore = (slotIndex: number, employeeIndex: number) => {

@@ -76,6 +76,7 @@ export const COLS: Record<TableName, string[]> = {
     "rate_override",
     "fill_extra",
     "max_closes",
+    "closing_time",
     "break_minutes",
     "break_after",
     "breaks_unpaid",

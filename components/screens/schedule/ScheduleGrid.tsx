@@ -1,7 +1,12 @@
 "use client";
 import { hasBreak } from "../../../lib/hours";
 import type { Report } from "../../../lib/report";
-import { closingTimesByDay, isClosingTime } from "../../../lib/rules";
+import {
+  closingTimesByDay,
+  isClosingTime,
+  limitFor,
+  shiftKindFinder,
+} from "../../../lib/rules";
 import { dateOfDay, shortDateLabel } from "../../../lib/weeks";
 import type { ScheduleRow, Snapshot } from "../../../lib/types";
 import {
@@ -44,8 +49,16 @@ export function ScheduleGrid({
     data.employees.find((employee) => employee.id === employeeId)?.name ??
     "Unknown";
 
-  // Closing time for each day: the latest end time among that day's shift templates.
-  const closingTimes = closingTimesByDay(data.shift_templates);
+  // Closing time for each day: the time in Settings, or the latest end time among that day's shift templates.
+  const closingTimes = closingTimesByDay(
+    data.shift_templates,
+    data.settings.closing_time,
+  );
+  // Whether each shift is an opening, closing or other shift, from its times. Sets the chip color.
+  const shiftKindOf = shiftKindFinder(
+    data.shift_templates,
+    data.settings.closing_time,
+  );
 
   // Counts how many of this person's shifts run to closing time (or later).
   const countClosingShifts = (employeeId: number) =>
@@ -55,15 +68,9 @@ export function ScheduleGrid({
         isClosingTime(closingTimes, shift.day, shift.end),
     ).length;
 
-  // The most closing shifts this person may work. A blank or zero limit means no limit (Infinity).
-  const closeLimitFor = (employee: Snapshot["employees"][number]) => {
-    const employeeLimit = employee.max_closes;
-    const limitValue =
-      employeeLimit == null || String(employeeLimit).trim() === ""
-        ? Number(data.settings.max_closes ?? 0)
-        : Number(employeeLimit);
-    return limitValue > 0 ? limitValue : Infinity;
-  };
+  // The most closing shifts this person may work, using the same rule as the scheduler.
+  const closeLimitFor = (employee: Snapshot["employees"][number]) =>
+    limitFor(employee, data.settings.max_closes);
 
   return (
     <>
@@ -144,7 +151,7 @@ export function ScheduleGrid({
                               onClick={() => onEditShift(shift)}
                               disabled={isLocked}
                               title={isLocked ? "Published. Unpublish the week to change shifts." : "Click to change this shift"}
-                              className={`block whitespace-nowrap rounded-md px-2 py-1 text-left text-xs ring-1 ring-inset ${isLocked ? "cursor-default" : "hover:brightness-95"} ${shiftChipClasses(shift.name)}`}
+                              className={`block whitespace-nowrap rounded-md px-2 py-1 text-left text-xs ring-1 ring-inset ${isLocked ? "cursor-default" : "hover:brightness-95"} ${shiftChipClasses(shiftKindOf(shift))}`}
                             >
                               <div className='font-semibold'>{shift.name}</div>
                               <div>
@@ -245,7 +252,7 @@ export function ScheduleGrid({
                       </div>
                     </div>
                     <span
-                      className={`rounded-md px-2 py-1 text-xs font-semibold ring-1 ring-inset ${shiftChipClasses(shift.name)}`}
+                      className={`rounded-md px-2 py-1 text-xs font-semibold ring-1 ring-inset ${shiftChipClasses(shiftKindOf(shift))}`}
                     >
                       {shift.name}
                     </span>

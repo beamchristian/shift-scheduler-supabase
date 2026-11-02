@@ -30,6 +30,12 @@ const PAYROLL_COLUMNS: ColumnDefinition[] = [
     inputType: "number",
   },
   {
+    key: "closing_time",
+    label:
+      "Closing time: shifts ending at or after it are closes (blank = each day's latest shift end)",
+    inputType: "time",
+  },
+  {
     key: "rate_override",
     label: "Average hourly rate (used for all payroll cost)",
     inputType: "number",

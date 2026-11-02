@@ -31,6 +31,7 @@ const FIELD_LABELS: Record<TableName, Record<string, string>> = {
     rate_override: "Average hourly rate",
     fill_extra: "Fill extra shifts",
     max_closes: "Default max closes",
+    closing_time: "Closing time",
     break_minutes: "Lunch break minutes",
     break_after: "Lunch applies after (hours)",
     breaks_unpaid: "Lunch unpaid",

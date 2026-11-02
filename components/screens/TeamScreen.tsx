@@ -24,7 +24,7 @@ const buildEmployeeColumns = (
   { key: "shifts", label: "Only these shift types (blank = all)" },
   {
     key: "max_closes",
-    label: "Max closes / wk (blank = default)",
+    label: "Max closes / wk (blank = default, 0 = never)",
     inputType: "number",
   },
 ];

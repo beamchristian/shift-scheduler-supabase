@@ -81,8 +81,13 @@ Times are stored as text in `HH:MM` (24-hour). Shifts end the same day; overnigh
   repeated presses give different results.
 - Shift times are passed to `lib/rules.ts` for availability (`availStatus`), shift types and skills
   (`allowedFor`, `lacksSkill`), and closing limits (`limitFor`).
-- A closing shift is one that ends at or after its day's closing time, which is the latest end time among that
-  day's shift templates (`closingTimesByDay` in `lib/rules.ts`). There are no separate store hours.
+- A closing shift is one that ends at or after the closing time: `settings.closing_time` on every day, or, when
+  that is blank, the latest end time among that day's shift templates (`closingTimesByDay` in `lib/rules.ts`).
+- A person's own max closes of 0 means they never close: the generator won't give them a closing shift. A blank
+  or 0 department default means no limit (`limitFor`).
+- Chip and PDF colors come from `shiftKindFinder` (by times, not just the name). Editing a shift's times renames
+  it when its kind changes (`nameAfterEdit` in `lib/shiftEdit.ts`). The shift editor can also swap a shift with
+  another shift that day or give it to someone off that day (`checkShiftSwap`, `/api/schedule`).
 
 ## Weeks
 
@@ -186,6 +191,8 @@ the signed-in email.
     week's own forecast and, once published, its payroll %, rate and day weights) and `schedule.week_id`.
     Existing schedules become the week of 2 Nov 2026, Published. Run it at the same time as deploying the code
     that uses weeks: older code can't save a schedule once `week_id` is required.
+  - 012: `settings.closing_time`. Run it before deploying the code that uses it: saving Settings and importing a
+    backup write that column.
 - Migration 005 has a known issue on a brand-new empty database (the identity sequence). The fix is in
   `schema.sql`, which should be used for new projects.
 

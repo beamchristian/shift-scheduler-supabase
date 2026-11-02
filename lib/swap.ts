@@ -60,8 +60,11 @@ export async function swapClosers(
   // Scheduled length of a shift, using the same hours logic as the generator.
   const shiftLength = (scheduleOrTime: { start: string; end: string }) =>
     logicHours(scheduleOrTime.start, scheduleOrTime.end, breakSettings);
-  // Closing time for each day: the latest end time among that day's shift templates.
-  const closingTimes = closingTimesByDay(departmentSnapshot.shift_templates);
+  // Closing time for each day: the time in Settings, or the latest end time among that day's shift templates.
+  const closingTimes = closingTimesByDay(
+    departmentSnapshot.shift_templates,
+    settings.closing_time,
+  );
   const employees: Employee[] = departmentSnapshot.employees;
   const templateById = new Map(
     departmentSnapshot.shift_templates.map((template) => [

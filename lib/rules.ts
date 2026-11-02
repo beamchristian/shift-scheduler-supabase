@@ -58,18 +58,63 @@ export const parseWindow = (windowText: string): [number, number] | null => {
   return [startMinutes, endMinutes];
 };
 
-// The closing time for each day: the latest end time of that day's shift templates, as "HH:MM".
-// A shift that ends at or after this time is a closing shift. Days with no templates are left out.
+// Matches a time saved as "HH:MM", for example "19:00".
+const SAVED_TIME_PATTERN = /^\d{1,2}:\d{2}/;
+
+// The closing time for each day, as "HH:MM". A shift that ends at or after it is a closing shift.
+// departmentClosingTime is the Closing time from Settings. When it is set, every day uses it.
+// When it is blank, each day uses the latest end time of its shift templates. Days with no templates are left out.
 export function closingTimesByDay(
   shiftTemplates: Pick<ShiftTemplate, "day" | "end">[],
+  departmentClosingTime?: string | null,
 ): Record<number, string> {
   const closingTimes: Record<number, string> = {};
+  const settingTime = String(departmentClosingTime ?? "").trim();
+  const hasSettingTime = SAVED_TIME_PATTERN.test(settingTime);
   for (const shiftTemplate of shiftTemplates) {
     const latestSoFar = closingTimes[shiftTemplate.day];
-    if (!latestSoFar || minutesOfDay(shiftTemplate.end) > minutesOfDay(latestSoFar))
+    if (hasSettingTime) closingTimes[shiftTemplate.day] = settingTime;
+    else if (!latestSoFar || minutesOfDay(shiftTemplate.end) > minutesOfDay(latestSoFar))
       closingTimes[shiftTemplate.day] = shiftTemplate.end;
   }
   return closingTimes;
+}
+
+// The kind of a scheduled shift, which sets its color on the schedule and the PDF.
+export type ShiftKind = "open" | "close" | "other";
+
+// Builds a function that tells whether a scheduled shift is an opening, closing or other shift.
+// It goes by the shift's times, so a shift edited by hand changes kind with its new times:
+// - A shift that ends at or after closing time is a close, whatever its name.
+// - A shift with "open" in its name is an opener.
+// - A shift named as a close that no longer runs to closing time is an opener when it starts no later than
+//   that day's latest opening template, and other when it starts later.
+export function shiftKindFinder(
+  shiftTemplates: Pick<ShiftTemplate, "day" | "start" | "end" | "name">[],
+  departmentClosingTime?: string | null,
+): (shift: { day: number; start: string; end: string; name: string }) => ShiftKind {
+  const closingTimes = closingTimesByDay(shiftTemplates, departmentClosingTime);
+  // The latest start, in minutes, among each day's templates with "open" in their name.
+  const latestOpenerStartByDay: Record<number, number> = {};
+  for (const shiftTemplate of shiftTemplates)
+    if (shiftTemplate.name.toLowerCase().includes("open"))
+      latestOpenerStartByDay[shiftTemplate.day] = Math.max(
+        latestOpenerStartByDay[shiftTemplate.day] ?? -1,
+        minutesOfDay(shiftTemplate.start),
+      );
+  return (shift) => {
+    if (isClosingTime(closingTimes, shift.day, shift.end)) return "close";
+    const lowerCaseName = shift.name.toLowerCase();
+    if (lowerCaseName.includes("open")) return "open";
+    const latestOpenerStart = latestOpenerStartByDay[shift.day];
+    if (
+      lowerCaseName.includes("clos") &&
+      latestOpenerStart !== undefined &&
+      minutesOfDay(shift.start) <= latestOpenerStart
+    )
+      return "open";
+    return "other";
+  };
 }
 
 // True when a shift ends at or after its day's closing time.
@@ -136,18 +181,18 @@ export function allowedFor(
   return !lacksSkill(employee, shiftTemplate);
 }
 
-// The weekly closing limit for a person: their own number, or the department default.
+// The weekly closing limit for a person: their own number, or the department default when theirs is blank.
+// A person's own 0 means they never close, and returns 0. A blank or 0 department default means no limit.
 // Returns Infinity when there is no limit.
 export function limitFor(
-  employee: Employee,
+  employee: Pick<Employee, "max_closes">,
   defaultLimit: number | string | null | undefined,
 ): number {
   const ownLimit = employee.max_closes;
-  const limitValue =
-    ownLimit == null || String(ownLimit).trim() === ""
-      ? Number(defaultLimit ?? 0)
-      : Number(ownLimit);
-  return limitValue > 0 ? limitValue : Infinity;
+  if (ownLimit != null && String(ownLimit).trim() !== "" && Number.isFinite(Number(ownLimit)))
+    return Math.max(0, Number(ownLimit));
+  const departmentLimit = Number(defaultLimit ?? 0);
+  return departmentLimit > 0 ? departmentLimit : Infinity;
 }
 
 // True when a shift needs a skill that the person is not tagged with.

@@ -309,6 +309,7 @@ export function ScheduleScreen({
       {editingShift && (
         <ShiftEditor
           shift={editingShift}
+          data={data}
           personName={
             data.employees.find(
               (person) => person.id === editingShift.employee_id,

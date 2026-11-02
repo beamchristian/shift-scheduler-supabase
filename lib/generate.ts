@@ -2,7 +2,7 @@ import { snapshot, transaction } from "./db";
 import { ensureWeek, PUBLISHED_WEEK_MESSAGE } from "./scheduleWeeks";
 import { withWeekNumbers } from "./weeks";
 import { avgRate, dailySales, dayBudget } from "./matrix";
-import { repair, searchFullCover } from "./solver";
+import { repair, searchFullCover, searchWithinClosingLimits } from "./solver";
 import { breakRule, logicHours, t12 } from "./hours";
 import {
   allowedFor,
@@ -129,8 +129,9 @@ async function plan(
   // Average shift length, used to favor part-timers on shorter shifts. Set once the slots are known.
   let averageShiftLength = 10;
 
-  // A closing shift runs to the day's latest template end time. The weekly closing limit is a preference, not a hard rule.
-  const closingTimes = closingTimesByDay(shiftTemplates);
+  // A closing shift ends at or after the closing time in Settings, or the day's latest template end time when that is blank.
+  // The weekly closing limit is a preference, not a hard rule, except that a limit of 0 means the person never closes.
+  const closingTimes = closingTimesByDay(shiftTemplates, settings.closing_time);
   const isClosingShift = (shiftTemplate: ShiftTemplate) =>
     isClosingTime(closingTimes, shiftTemplate.day, shiftTemplate.end);
   const closingLimitOf = (employee: EmployeeWorkingState): number =>
@@ -173,12 +174,19 @@ async function plan(
     }
     return availabilityResult.ok;
   };
+  // True when a person whose closing limit is 0 would be given a closing shift. They never close.
+  const isBlockedFromClosing = (
+    employee: EmployeeWorkingState,
+    shiftTemplate: ShiftTemplate,
+  ): boolean => isClosingShift(shiftTemplate) && closingLimitOf(employee) === 0;
   // True when the person may work this shift: the hard rules allow it and they are available.
   const canWorkShift = (
     employee: EmployeeWorkingState,
     shiftTemplate: ShiftTemplate,
   ): boolean =>
-    allowedFor(employee, shiftTemplate) && isAvailable(employee, shiftTemplate);
+    allowedFor(employee, shiftTemplate) &&
+    !isBlockedFromClosing(employee, shiftTemplate) &&
+    isAvailable(employee, shiftTemplate);
 
   // People who could take a shift right now: not already working that day, with hours to spare, and allowed.
   const candidatePeople = (shiftTemplate: ShiftTemplate) =>
@@ -385,76 +393,101 @@ async function plan(
       (holderIndex, slotIndex) =>
         holderIndex === personIndex && slots[slotIndex].day === day,
     );
-  let bestPenalty = totalPenalty();
-  for (let passCount = 0; passCount < 300; passCount++) {
-    let bestMove: (() => void) | null = null;
-    let bestPenaltyForMove = bestPenalty;
-    for (let slotIndex = 0; slotIndex < slots.length; slotIndex++) {
-      const currentHolderIndex = assignedEmployeeBySlot[slotIndex];
-      if (currentHolderIndex < 0) continue;
-      for (
-        let otherPersonIndex = 0;
-        otherPersonIndex < employees.length;
-        otherPersonIndex++
-      ) {
-        if (
-          otherPersonIndex === currentHolderIndex ||
-          !allowedMatrix[otherPersonIndex][slotIndex]
-        )
-          continue;
-        // Option A: hand this shift to the other person, if they are free that day.
-        if (
-          !employeeBusyOnDay(otherPersonIndex, slots[slotIndex].day) &&
-          hoursOfEmployee(otherPersonIndex) + slotHours[slotIndex] <=
-            maxHoursByEmployee[otherPersonIndex] + 1e-9
+  // Makes the best single move or same-day swap, over and over, until no move lowers the penalty.
+  // Returns the penalty it ends with.
+  const improveAssignment = (): number => {
+    let bestPenalty = totalPenalty();
+    for (let passCount = 0; passCount < 300; passCount++) {
+      let bestMove: (() => void) | null = null;
+      let bestPenaltyForMove = bestPenalty;
+      for (let slotIndex = 0; slotIndex < slots.length; slotIndex++) {
+        const currentHolderIndex = assignedEmployeeBySlot[slotIndex];
+        if (currentHolderIndex < 0) continue;
+        for (
+          let otherPersonIndex = 0;
+          otherPersonIndex < employees.length;
+          otherPersonIndex++
         ) {
-          assignedEmployeeBySlot[slotIndex] = otherPersonIndex;
-          const penaltyIfMoved = totalPenalty();
-          assignedEmployeeBySlot[slotIndex] = currentHolderIndex;
-          if (penaltyIfMoved < bestPenaltyForMove - 1e-9) {
-            bestPenaltyForMove = penaltyIfMoved;
-            bestMove = () => {
-              assignedEmployeeBySlot[slotIndex] = otherPersonIndex;
-            };
+          if (
+            otherPersonIndex === currentHolderIndex ||
+            !allowedMatrix[otherPersonIndex][slotIndex]
+          )
+            continue;
+          // Option A: hand this shift to the other person, if they are free that day.
+          if (
+            !employeeBusyOnDay(otherPersonIndex, slots[slotIndex].day) &&
+            hoursOfEmployee(otherPersonIndex) + slotHours[slotIndex] <=
+              maxHoursByEmployee[otherPersonIndex] + 1e-9
+          ) {
+            assignedEmployeeBySlot[slotIndex] = otherPersonIndex;
+            const penaltyIfMoved = totalPenalty();
+            assignedEmployeeBySlot[slotIndex] = currentHolderIndex;
+            if (penaltyIfMoved < bestPenaltyForMove - 1e-9) {
+              bestPenaltyForMove = penaltyIfMoved;
+              bestMove = () => {
+                assignedEmployeeBySlot[slotIndex] = otherPersonIndex;
+              };
+            }
           }
-        }
-        // Option B: swap with the shift the other person works that same day.
-        const swapSlotIndex = slots.findIndex(
-          (slot, candidateSlotIndex) =>
-            assignedEmployeeBySlot[candidateSlotIndex] === otherPersonIndex &&
-            slot.day === slots[slotIndex].day,
-        );
-        if (
-          swapSlotIndex >= 0 &&
-          allowedMatrix[currentHolderIndex][swapSlotIndex] &&
-          hoursOfEmployee(currentHolderIndex) -
-            slotHours[slotIndex] +
-            slotHours[swapSlotIndex] <=
-            maxHoursByEmployee[currentHolderIndex] + 1e-9 &&
-          hoursOfEmployee(otherPersonIndex) -
-            slotHours[swapSlotIndex] +
-            slotHours[slotIndex] <=
-            maxHoursByEmployee[otherPersonIndex] + 1e-9
-        ) {
-          assignedEmployeeBySlot[slotIndex] = otherPersonIndex;
-          assignedEmployeeBySlot[swapSlotIndex] = currentHolderIndex;
-          const penaltyIfSwapped = totalPenalty();
-          assignedEmployeeBySlot[slotIndex] = currentHolderIndex;
-          assignedEmployeeBySlot[swapSlotIndex] = otherPersonIndex;
-          if (penaltyIfSwapped < bestPenaltyForMove - 1e-9) {
-            bestPenaltyForMove = penaltyIfSwapped;
-            bestMove = () => {
-              assignedEmployeeBySlot[slotIndex] = otherPersonIndex;
-              assignedEmployeeBySlot[swapSlotIndex] = currentHolderIndex;
-            };
+          // Option B: swap with the shift the other person works that same day.
+          const swapSlotIndex = slots.findIndex(
+            (slot, candidateSlotIndex) =>
+              assignedEmployeeBySlot[candidateSlotIndex] === otherPersonIndex &&
+              slot.day === slots[slotIndex].day,
+          );
+          if (
+            swapSlotIndex >= 0 &&
+            allowedMatrix[currentHolderIndex][swapSlotIndex] &&
+            hoursOfEmployee(currentHolderIndex) -
+              slotHours[slotIndex] +
+              slotHours[swapSlotIndex] <=
+              maxHoursByEmployee[currentHolderIndex] + 1e-9 &&
+            hoursOfEmployee(otherPersonIndex) -
+              slotHours[swapSlotIndex] +
+              slotHours[slotIndex] <=
+              maxHoursByEmployee[otherPersonIndex] + 1e-9
+          ) {
+            assignedEmployeeBySlot[slotIndex] = otherPersonIndex;
+            assignedEmployeeBySlot[swapSlotIndex] = currentHolderIndex;
+            const penaltyIfSwapped = totalPenalty();
+            assignedEmployeeBySlot[slotIndex] = currentHolderIndex;
+            assignedEmployeeBySlot[swapSlotIndex] = otherPersonIndex;
+            if (penaltyIfSwapped < bestPenaltyForMove - 1e-9) {
+              bestPenaltyForMove = penaltyIfSwapped;
+              bestMove = () => {
+                assignedEmployeeBySlot[slotIndex] = otherPersonIndex;
+                assignedEmployeeBySlot[swapSlotIndex] = currentHolderIndex;
+              };
+            }
           }
         }
       }
+      if (!bestMove) break;
+      (bestMove as () => void)();
+      bestPenalty = bestPenaltyForMove;
     }
-    if (!bestMove) break;
-    (bestMove as () => void)();
-    bestPenalty = bestPenaltyForMove;
-  }
+    return bestPenalty;
+  };
+  // Each close over a limit adds 1000 to the penalty, so a penalty of 1000 or more means someone is still over.
+  // Single moves can get stuck there (for example when the person over their limit is too near their max hours
+  // to trade a close for a longer opener), so search the whole week for a schedule that keeps everyone within
+  // their limit, then tidy minimum hours again.
+  if (
+    improveAssignment() >= 1000 &&
+    searchWithinClosingLimits(
+      slots.map((slot) => ({ day: slot.day, len: shiftLength(slot) })),
+      maxHoursByEmployee,
+      allowedMatrix,
+      assignedEmployeeBySlot,
+      shouldSave ? weeklyHourBudget : Infinity,
+      {
+        minHours: minHoursByEmployee,
+        closingLimits,
+        isClosingSlot: isClosingSlotFlags,
+      },
+    )
+  )
+    improveAssignment();
 
   // Rebuild hours, days and closes from the final assignment.
   for (const employee of employees) {
@@ -486,6 +519,7 @@ async function plan(
         employee,
         hoursThisWeek: employee.hoursThisWeek,
         shiftOnSameDay: requiredShiftOnDay(personIndex, slot.day),
+        neverCloses: isBlockedFromClosing(employee, slot),
       })),
       shiftLength(slot),
     );
