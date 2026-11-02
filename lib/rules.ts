@@ -195,6 +195,14 @@ export function limitFor(
   return departmentLimit > 0 ? departmentLimit : Infinity;
 }
 
+// The most days a person may work in a week. Blank (or unreadable) means no limit, and returns Infinity.
+export function maxDaysFor(employee: Pick<Employee, "max_days">): number {
+  const ownLimit = employee.max_days;
+  if (ownLimit == null || String(ownLimit).trim() === "" || !Number.isFinite(Number(ownLimit)))
+    return Infinity;
+  return Math.max(0, Number(ownLimit));
+}
+
 // True when a shift needs a skill that the person is not tagged with.
 export function lacksSkill(
   employee: Employee,

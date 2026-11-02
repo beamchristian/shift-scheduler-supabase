@@ -85,6 +85,8 @@ Times are stored as text in `HH:MM` (24-hour). Shifts end the same day; overnigh
   that is blank, the latest end time among that day's shift templates (`closingTimesByDay` in `lib/rules.ts`).
 - A person's own max closes of 0 means they never close: the generator won't give them a closing shift. A blank
   or 0 department default means no limit (`limitFor`).
+- `employees.max_days` caps how many days a person works in a week (`maxDaysFor`; blank means no limit). It is a
+  hard rule in the generator, the repair and the full searches in `lib/solver.ts`, and edits and swaps warn past it.
 - Chip and PDF colors come from `shiftKindFinder` (by times, not just the name). Editing a shift's times renames
   it when its kind changes (`nameAfterEdit` in `lib/shiftEdit.ts`). The shift editor can also swap a shift with
   another shift that day or give it to someone off that day (`checkShiftSwap`, `/api/schedule`).
@@ -192,6 +194,8 @@ the signed-in email.
     Existing schedules become the week of 2 Nov 2026, Published. Run it at the same time as deploying the code
     that uses weeks: older code can't save a schedule once `week_id` is required.
   - 012: `settings.closing_time`. Run it before deploying the code that uses it: saving Settings and importing a
+    backup write that column.
+  - 013: `employees.max_days`. Run it before deploying the code that uses it: saving the Team screen and importing a
     backup write that column.
 - Migration 005 has a known issue on a brand-new empty database (the identity sequence). The fix is in
   `schema.sql`, which should be used for new projects.

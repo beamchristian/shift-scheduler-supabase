@@ -2,6 +2,7 @@ import { t12 } from "./hours";
 import {
   availStatus,
   lacksSkill,
+  maxDaysFor,
   minutesOfDay,
   norm,
   parseWindow,
@@ -30,11 +31,12 @@ const MAX_PEOPLE_LISTED = 4;
 const HOURS_TOLERANCE = 1e-9;
 
 // One person's situation at the moment a shift was left open:
-// the hours they already work this week, the shift they already work that day (null when free that day),
+// the hours and days they already work this week, the shift they already work that day (null when free that day),
 // and whether the shift is a close while their closing limit is 0.
 export interface PersonForShift {
   employee: Employee;
   hoursThisWeek: number;
+  daysThisWeek: number;
   shiftOnSameDay: { name: string; start: string; end: string } | null;
   neverCloses: boolean;
 }
@@ -85,7 +87,7 @@ function availabilityProblem(
 }
 
 // True when nothing about the person themselves stops them taking the shift: their shift types allow it,
-// they are available, they may close (when it is a close), they are free that day, they have the skill, and the hours fit under their max.
+// they are available, they may close (when it is a close), they are free that day and under their max days, they have the skill, and the hours fit under their max.
 // "Only these people" is not checked, so this finds who could step in if that list were changed.
 function couldTakeShift(
   person: PersonForShift,
@@ -100,6 +102,7 @@ function couldTakeShift(
     availStatus(person.employee, shiftTemplate).ok &&
     !person.neverCloses &&
     !person.shiftOnSameDay &&
+    person.daysThisWeek < maxDaysFor(person.employee) &&
     !lacksSkill(person.employee, shiftTemplate) &&
     maxHoursValue !== null &&
     String(maxHoursValue).trim() !== "" &&
@@ -150,6 +153,10 @@ function personProblem(
 
   if (person.shiftOnSameDay)
     return `${employee.name} already works ${person.shiftOnSameDay.name} (${t12(person.shiftOnSameDay.start)} to ${t12(person.shiftOnSameDay.end)}) that day`;
+
+  const maxDays = maxDaysFor(employee);
+  if (person.daysThisWeek >= maxDays)
+    return `${employee.name} already works ${person.daysThisWeek} days, their max on the Team screen`;
 
   // A blank max counts as zero hours, so the person can never be given a shift. Saying so makes that visible.
   const maxHoursValue = employee.max_hours as number | string | null;

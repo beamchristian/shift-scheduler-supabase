@@ -98,6 +98,8 @@ create table if not exists employees (
   skills text default '',
   shifts text default '',
   max_closes double precision,
+  -- The most days the person may work in a week. Blank means no limit.
+  max_days double precision,
   avail_1 text default '',
   avail_2 text default '',
   avail_3 text default '',

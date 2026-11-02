@@ -56,6 +56,8 @@ export interface Employee {
   shifts: string | null;
   // Weekly closing limit for this person. Blank uses the department default.
   max_closes: number | string | null;
+  // The most days this person may work in a week. Blank means no limit.
+  max_days?: number | string | null;
   // Availability for Monday (1) through Saturday (6). Blank means any time, "off" means unavailable, or a window such as "6am-2pm".
   avail_1: string | null;
   avail_2: string | null;

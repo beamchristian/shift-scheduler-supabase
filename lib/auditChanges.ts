@@ -52,6 +52,7 @@ const FIELD_LABELS: Record<TableName, Record<string, string>> = {
     skills: "Skills",
     shifts: "Shift types",
     max_closes: "Max closes",
+    max_days: "Max days",
     avail_1: "Monday availability",
     avail_2: "Tuesday availability",
     avail_3: "Wednesday availability",

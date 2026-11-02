@@ -27,6 +27,11 @@ const buildEmployeeColumns = (
     label: "Max closes / wk (blank = default, 0 = never)",
     inputType: "number",
   },
+  {
+    key: "max_days",
+    label: "Max days / wk (blank = no limit)",
+    inputType: "number",
+  },
 ];
 
 // The Team screen: the employee list, with notes on skills and shift types.

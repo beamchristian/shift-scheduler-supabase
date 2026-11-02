@@ -10,6 +10,7 @@ import {
   closingTimesByDay,
   isClosingTime,
   limitFor,
+  maxDaysFor,
   norm,
 } from "./rules";
 import { explainUnfilledShift } from "./unfilledReason";
@@ -188,11 +189,13 @@ async function plan(
     !isBlockedFromClosing(employee, shiftTemplate) &&
     isAvailable(employee, shiftTemplate);
 
-  // People who could take a shift right now: not already working that day, with hours to spare, and allowed.
+  // People who could take a shift right now: not already working that day, under their max days,
+  // with hours to spare, and allowed.
   const candidatePeople = (shiftTemplate: ShiftTemplate) =>
     employees.filter(
       (employee) =>
         !employee.daysWorked.has(shiftTemplate.day) &&
+        employee.daysWorked.size < maxDaysFor(employee) &&
         employee.hoursThisWeek + shiftLength(shiftTemplate) <=
           employee.max_hours &&
         canWorkShift(employee, shiftTemplate),
@@ -314,6 +317,7 @@ async function plan(
   const allowedMatrix = employees.map((employee) =>
     slots.map((slot) => canWorkShift(employee, slot)),
   );
+  const maxDaysByEmployee = employees.map(maxDaysFor);
   const openSlotIndexes = assignedEmployeeBySlot.flatMap(
     (holderIndex, slotIndex) => (holderIndex < 0 ? [slotIndex] : []),
   );
@@ -321,6 +325,7 @@ async function plan(
     repair(
       slots.map((slot) => ({ day: slot.day, len: shiftLength(slot) })),
       employees.map((employee) => Number(employee.max_hours)),
+      maxDaysByEmployee,
       allowedMatrix,
       assignedEmployeeBySlot,
       openSlotIndexes,
@@ -333,6 +338,7 @@ async function plan(
     searchFullCover(
       slots.map((slot) => ({ day: slot.day, len: shiftLength(slot) })),
       employees.map((employee) => Number(employee.max_hours)),
+      maxDaysByEmployee,
       allowedMatrix,
       assignedEmployeeBySlot,
       shouldSave ? weeklyHourBudget : Infinity,
@@ -387,6 +393,13 @@ async function plan(
         runningHours + (holderIndex === personIndex ? slotHours[slotIndex] : 0),
       0,
     );
+  // How many days a person is working right now.
+  const daysOfEmployee = (personIndex: number) =>
+    new Set(
+      slots
+        .filter((_, slotIndex) => assignedEmployeeBySlot[slotIndex] === personIndex)
+        .map((slot) => slot.day),
+    ).size;
   // Whether a person already has a shift on a given day.
   const employeeBusyOnDay = (personIndex: number, day: number) =>
     assignedEmployeeBySlot.some(
@@ -413,9 +426,10 @@ async function plan(
             !allowedMatrix[otherPersonIndex][slotIndex]
           )
             continue;
-          // Option A: hand this shift to the other person, if they are free that day.
+          // Option A: hand this shift to the other person, if they are free that day and under their max days.
           if (
             !employeeBusyOnDay(otherPersonIndex, slots[slotIndex].day) &&
+            daysOfEmployee(otherPersonIndex) < maxDaysByEmployee[otherPersonIndex] &&
             hoursOfEmployee(otherPersonIndex) + slotHours[slotIndex] <=
               maxHoursByEmployee[otherPersonIndex] + 1e-9
           ) {
@@ -477,6 +491,7 @@ async function plan(
     searchWithinClosingLimits(
       slots.map((slot) => ({ day: slot.day, len: shiftLength(slot) })),
       maxHoursByEmployee,
+      maxDaysByEmployee,
       allowedMatrix,
       assignedEmployeeBySlot,
       shouldSave ? weeklyHourBudget : Infinity,
@@ -519,6 +534,7 @@ async function plan(
         employee,
         hoursThisWeek: employee.hoursThisWeek,
         shiftOnSameDay: requiredShiftOnDay(personIndex, slot.day),
+        daysThisWeek: employee.daysWorked.size,
         neverCloses: isBlockedFromClosing(employee, slot),
       })),
       shiftLength(slot),

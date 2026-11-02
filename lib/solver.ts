@@ -15,11 +15,12 @@ export interface SearchPreferences {
 // Searches for an assignment that covers more shifts than the current one, trying every combination
 // until it finds one that covers them all or runs out of steps. This catches schedules that need several
 // people's weeks reshuffled together, which the one-move-at-a-time repair below cannot find.
-// Respects the same hard rules: allowedMatrix, one shift per person per day, max hours, and the hour budget.
+// Respects the same hard rules: allowedMatrix, one shift per person per day, max hours, max days, and the hour budget.
 // Replaces assignedEmployeeBySlot in place only when the search covers more shifts. Returns true when it did.
 //
 // shiftSlots: every shift that needs filling.
 // maxHours: the most hours each person may work, by person index.
+// maxDays: the most days each person may work, by person index (Infinity for no limit).
 // allowedMatrix[person][slot]: true when that person may work that shift.
 // assignedEmployeeBySlot[slot]: the current assignment, or -1. Updated in place on success.
 // hourBudget: the most hours the whole assignment may use (Infinity for none).
@@ -28,6 +29,7 @@ export interface SearchPreferences {
 export function searchFullCover(
   shiftSlots: Slot[],
   maxHours: number[],
+  maxDays: number[],
   allowedMatrix: boolean[][],
   assignedEmployeeBySlot: number[],
   hourBudget: number,
@@ -42,6 +44,7 @@ export function searchFullCover(
   return searchAssignment(
     shiftSlots,
     maxHours,
+    maxDays,
     allowedMatrix,
     assignedEmployeeBySlot,
     hourBudget,
@@ -61,6 +64,7 @@ export function searchFullCover(
 export function searchWithinClosingLimits(
   shiftSlots: Slot[],
   maxHours: number[],
+  maxDays: number[],
   allowedMatrix: boolean[][],
   assignedEmployeeBySlot: number[],
   hourBudget: number,
@@ -74,6 +78,7 @@ export function searchWithinClosingLimits(
   return searchAssignment(
     shiftSlots,
     maxHours,
+    maxDays,
     allowedMatrix,
     assignedEmployeeBySlot,
     hourBudget,
@@ -91,6 +96,7 @@ export function searchWithinClosingLimits(
 function searchAssignment(
   shiftSlots: Slot[],
   maxHours: number[],
+  maxDays: number[],
   allowedMatrix: boolean[][],
   assignedEmployeeBySlot: number[],
   hourBudget: number,
@@ -122,6 +128,7 @@ function searchAssignment(
   const canTake = (slotIndex: number, employeeIndex: number) =>
     allowedMatrix[employeeIndex][slotIndex] &&
     !daysByEmployee[employeeIndex].has(shiftSlots[slotIndex].day) &&
+    daysByEmployee[employeeIndex].size < maxDays[employeeIndex] &&
     hoursByEmployee[employeeIndex] + shiftSlots[slotIndex].len <=
       maxHours[employeeIndex] + HOURS_TOLERANCE &&
     hoursUsed + shiftSlots[slotIndex].len <= hourBudget + HOURS_TOLERANCE &&
@@ -238,6 +245,7 @@ function searchAssignment(
 //
 // shiftSlots: every shift that needs filling.
 // maxHours: the most hours each person may work, by person index.
+// maxDays: the most days each person may work, by person index (Infinity for no limit).
 // allowedMatrix[person][slot]: true when that person may work that shift.
 // assignedEmployeeBySlot[slot]: the person working the shift, or -1. Updated in place.
 // openSlotIndexes: the shifts still to fill.
@@ -246,6 +254,7 @@ function searchAssignment(
 export function repair(
   shiftSlots: Slot[],
   maxHours: number[],
+  maxDays: number[],
   allowedMatrix: boolean[][],
   assignedEmployeeBySlot: number[],
   openSlotIndexes: number[],
@@ -286,6 +295,10 @@ export function repair(
     slotByEmployeeAndDay[holderIndex][shiftSlots[slotIndex].day] = -1;
   };
 
+  // How many days a person is working right now.
+  const daysWorked = (employeeIndex: number) =>
+    slotByEmployeeAndDay[employeeIndex].filter((slotIndex) => slotIndex >= 0).length;
+
   let stepCount = 0;
   // Tries to place one shift. Returns true when it succeeds.
   // peopleUsedInThisChain stops the search from looping back to someone already moved.
@@ -305,10 +318,12 @@ export function repair(
       )
         candidatePeople.push(employeeIndex);
 
-    // First choice: someone free that day, with hours to spare.
+    // First choice: someone free that day, with hours and days to spare.
+    // The third choice below covers someone at their max days, by moving one of their other shifts away.
     for (const employeeIndex of candidatePeople) {
       if (
         slotByEmployeeAndDay[employeeIndex][slotDay] < 0 &&
+        daysWorked(employeeIndex) < maxDays[employeeIndex] &&
         hoursByEmployee[employeeIndex] + slotLength <=
           maxHours[employeeIndex] + HOURS_TOLERANCE
       ) {

@@ -1,5 +1,5 @@
 import { buildReport, type Report } from "./report";
-import { allowedFor, availStatus, lacksSkill, limitFor, shiftKindFinder, type ShiftKind } from "./rules";
+import { allowedFor, availStatus, lacksSkill, limitFor, maxDaysFor, shiftKindFinder, type ShiftKind } from "./rules";
 import type { Employee, ScheduleRow, ShiftTemplate, Snapshot } from "./types";
 
 // What a manual change to one shift would cause.
@@ -62,8 +62,8 @@ export function nameAfterEdit(snapshot: Snapshot, shift: ScheduleRow, newStart: 
   return kindBefore === kindAfter ? shift.name : nameForKind(shift.name, kindAfter);
 }
 
-// Warnings about one person's week after a change: hours over their max or under their min, and closes over
-// their limit. A warning only appears when the change makes it worse than before.
+// Warnings about one person's week after a change: hours over their max or under their min, days over their
+// max, and closes over their limit. A warning only appears when the change makes it worse than before.
 // Returns the warnings, or an empty list.
 function personWeekWarnings(snapshot: Snapshot, before: Report, after: Report, employee: Employee): string[] {
   const warnings: string[] = [];
@@ -77,6 +77,12 @@ function personWeekWarnings(snapshot: Snapshot, before: Report, after: Report, e
     warnings.push(`${employee.name} would be at ${hoursText(personAfter.hours)} hours, over their maximum of ${maxHours}.`);
   if (minHours > 0 && personAfter.hours < minHours && personAfter.hours < personBefore.hours)
     warnings.push(`${employee.name} would be at ${hoursText(personAfter.hours)} hours, under their minimum of ${minHours}.`);
+  // Days worked: the number of different days the person has a shift on.
+  const daysBefore = new Set(personBefore.shifts.map((row) => row.day)).size;
+  const daysAfter = new Set(personAfter.shifts.map((row) => row.day)).size;
+  const maxDays = maxDaysFor(employee);
+  if (daysAfter > maxDays && daysAfter > daysBefore)
+    warnings.push(`${employee.name} would work ${daysAfter} days, over their max of ${maxDays}.`);
   if (personAfter.closes > closeLimit && personAfter.closes > personBefore.closes)
     warnings.push(
       closeLimit === 0
