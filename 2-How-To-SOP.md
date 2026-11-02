@@ -10,7 +10,8 @@ depends on your role.
 - **Department manager**: works in their assigned departments, but can't change who has access or create or
   delete departments.
 
-Anyone who can open a department can change a shift's times on its schedule.
+Anyone who can open a department can change a shift's times on its schedule, swap it with someone else's shift,
+or give it to someone who is off.
 
 ## Signing in
 
@@ -54,17 +55,29 @@ and each change asks you to confirm first. A published past week has to be unpub
    Each week keeps its own forecast, and a new week starts from the last one you entered.
 2. **Generate.** Build the week's schedule. It replaces only that week's draft. Any warnings appear above the
    schedule. When it's ready, **Publish schedule**.
+   - The generator never breaks availability, skills, "Only for", max hours or max days. If it can't fill a
+     shift without breaking one of these, it leaves the shift open and the warning names what stopped each
+     person. See "When a week won't fill" below.
+   - Closing limits are kept whenever the shifts can still be covered. If someone has to close more than their
+     limit, a warning says so.
 3. **Swap a closer.** Each day has a button to swap the closer, for example when someone calls out. The app
    picks the best option and respects availability, skills, and closing limits.
-4. **Change one shift.** Click any shift on the grid (or a row on a phone). In the Edit shift box:
-   - Change the start and end.
-   - Read the messages. Red messages stop the change (end before start, or the person would be in two places).
-     Yellow messages are warnings you can still save through, such as labor over budget or someone outside
-     their availability.
-   - Save shift. The saved change shows its warnings above the labor section.
-     A changed shift updates the labor matrix, each person's hours, and the exports. "To fully staff" stays the
-     same, because it comes from the shift setup, not from individual shifts. Change the shift setup on the
-     Shifts screen to change it.
+4. **Change one shift.** Click any shift on the grid (or a row on a phone). In the Edit shift box, do one of these:
+   - **Change the start and end.** If the new times turn the shift into a different kind (for example an opener
+     that now runs to closing time), the box says so and the shift is renamed when you save: "Opener" becomes
+     "Closer", "Subshop Open" becomes "Subshop Closer", and "Production" becomes "Production Closer".
+   - **Swap or give away.** Pick another person's shift that day to trade shifts with them, or pick someone
+     who is off that day to hand the shift to them. The times stay the same.
+
+   Then read the messages. Red messages stop the change (end before start, the person would be in two places,
+   or the person you picked already works that day). Yellow messages are warnings you can still save through,
+   such as labor over budget, someone outside their availability or missing a skill, or someone going over
+   their hours, days or closing limit. Click **Save shift**. The saved change shows its warnings above the labor
+   section.
+
+   A changed shift updates the labor matrix, each person's hours and closes, and the exports. "To fully staff"
+   stays the same, because it comes from the shift setup, not from individual shifts. Change the shift setup on
+   the Shifts screen to change it.
 5. **Labor matrix.** Compare scheduled hours and cost with the budget for each day and the week.
    - **Day weight** (top row): each day's share of the week's sales. Type a new number and click away to
      save it. Weights are relative, so they don't need to add up to 100; the grey figure under each box
@@ -72,17 +85,34 @@ and each change asks you to confirm first. A published past week has to be unpub
 6. **Summary tiles.** "Hours to fully staff" and "Cost to fully staff" show what the shift setup needs.
    "Scheduled so far" shows what's currently assigned.
 
+### Closing shifts and colors
+
+- A **closing shift** is any shift that ends at or after the **Closing time** in Settings, on every day. For
+  example, with Closing time set to 7:00 PM, a shift ending at 7:00 PM or 8:00 PM is a close. If Closing time is
+  blank, each day uses the latest end time of that day's shifts on the Shifts screen.
+- Under each person's hours, the grid shows how many closes they have. The number turns amber when it's over
+  their closing limit.
+- Shift colors on the grid and the PDF:
+  - **Blue**: a closing shift, whatever its name.
+  - **Yellow**: an opening shift (a name with "Open" in it).
+  - **Green**: anything else, such as Production or Subshop Mid.
+- The colors follow the times. A shift you edit to end at closing time turns blue (and is renamed, see above).
+
 ## Team
 
 Add and edit the people in the department.
 
 - **Name, position, and type** (full-time or part-time).
-- **Minimum and maximum hours** for the week. The schedule flags anyone outside these limits.
+- **Minimum and maximum hours** for the week. The schedule flags anyone outside these limits. These count shift
+  hours, or paid hours (lunch taken out) if that is turned on in Settings.
 - **Skills**: add skills as chips. Press Enter or comma to add, and use the ✕ to remove. Skills are used by
   shifts that require a skill.
 - **Shift types**: the shift templates this person may work. Blank means any.
-- **Closing limit**: how many closing shifts this person may work in a week. Blank uses the department default.
-  A closing shift is one that ends at the day's latest shift end time on the Shifts screen.
+- **Max closes / wk**: how many closing shifts this person may work in a week. Blank uses the department default
+  from Settings. **0 means they never close**: the generator won't give them a closing shift. See "Closing shifts
+  and colors" for what counts as a close.
+- **Max days / wk**: the most days this person may work in a week. Blank means no limit. The generator never
+  goes over it. Use it, for example, to keep full-timers to 5 days, or a part-timer who only works 2 days to 2.
 
 ## Availability
 
@@ -91,6 +121,12 @@ For each person and each day, choose:
 - **Blank**: any time.
 - **Off**: not available that day.
 - **A window**, such as `6am-2pm`: the whole shift must fit inside it.
+
+Windows are also how you steer who opens and who closes. A window that ends before closing time (such as
+`6am-4pm`) means the person can only open that day. A window that starts mid-morning (such as `9:30am-8pm`)
+means they can only close. For example, to have someone close Thursday, Friday and Saturday this week, give
+them `9:30am-8pm` on those days and `6am-4pm` on the days they should open. Change it back the next week to
+rotate.
 
 ## Shifts
 
@@ -107,6 +143,14 @@ Changing a template changes the "to fully staff" hours. Changing one person's sh
 
 - **Store and payroll**: weekly sales, payroll percentage, the average hourly rate, break rules, and whether
   paid hours are counted.
+  - **Default max closing shifts**: the closing limit for anyone whose own is blank on the Team screen. Here,
+    0 means no limit.
+  - **Closing time**: a shift that ends at or after this time is a closing shift, on every day. Leave it blank to
+    use each day's latest shift end instead.
+  - **Run budget and min/max on paid hours?**: 0 counts full shift hours. 1 counts paid hours, with the unpaid
+    lunch taken out, for the budget and for everyone's min and max hours. Paid hours can let a part-timer fit
+    one more shift under their max. Someone set to exactly 40 hours may then show as under their minimum
+    (for example 37.5 paid), so set their minimum to match.
 - **Backup and transfer**: export this department's data to a file, or import one. The file holds every saved
   week, with its status (Draft or Published) and schedule. Importing replaces everything, every week included.
   An older backup made before weeks were tracked holds one schedule, which comes in as a draft for the week on
@@ -156,7 +200,12 @@ Sections run from the widest access to the narrowest.
 - **Someone calls out on a published week:** Schedule > Unpublish > swap the closer or change their shift >
   Publish schedule again.
 - **Checking every department is ready:** Store overview > Next week > look for any Draft or No schedule yet.
-- **Someone calls out:** Schedule > swap the closer for that day, or click their shift and change or clear it.
+- **Someone calls out:** Schedule > swap the closer for that day, or click their shift > Swap or give away >
+  pick someone who is off that day.
+- **Two people want to trade shifts:** Schedule > click one of the shifts > Swap or give away > pick the other
+  person's shift that day > save.
+- **Rotating who closes Saturday:** Availability > give this week's Saturday closer `9:30am-8pm` on Saturday,
+  and the person who closed last Saturday a window that ends before closing time, such as `6am-4pm`. Generate.
 - **Someone is leaving early:** Schedule > click their shift > change the end time > read the warnings > save.
 - **A new employee starts:** create their login in Supabase, then Team > add them, then Availability.
 - **A new store opens:** Access > Create a store > enter the name and the store manager emails.
@@ -170,3 +219,22 @@ Sections run from the widest access to the narrowest.
 - **A change won't save:** read the red message in the editor. It names the problem, such as an overlapping
   shift.
 - **Numbers look stale:** refresh the page. Check Settings > Recent changes to confirm the change was saved.
+- **A shift doesn't count as a close:** check Settings > Closing time. A shift only counts if it ends at or after
+  that time. With Closing time blank, a shift ending at 7 PM doesn't count on a day whose latest shift ends at
+  8 PM.
+
+### When a week won't fill
+
+If Generate leaves a shift open ("Unfilled") or warns that someone closes over their limit, the team doesn't
+have enough room that week. The generator already searches for a way to reshuffle everyone's week before it gives
+up, so generating again without changing anything gives the same result. Read the warning: it names what stopped each person (off that day, already at
+their max hours or max days, never closes, and so on). Then make room in one of these ways:
+
+1. **Count paid hours** (Settings): lunch comes off each shift, which often lets a part-timer take one more.
+2. **Open someone's availability** on the day that's short, or widen their window.
+3. **Raise someone's max hours, max days or closing limit**, if they agree.
+4. **Lower the headcount** of a shift on the Shifts screen, if the day can run with fewer people.
+5. **Shorten a shift** on the Shifts screen, so it fits under someone's max hours.
+
+Don't give someone a sixth day by hand to make the week fit. Set their max days, so the warning shows the real
+gap.
