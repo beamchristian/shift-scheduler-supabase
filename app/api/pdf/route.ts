@@ -7,15 +7,17 @@ import { readWeekStart } from "../../../lib/scheduleWeeks";
 export const dynamic = "force-dynamic";
 
 // Builds the printable schedule (with the labor matrix and payroll) for one week of the active department
-// ("?week=YYYY-MM-DD", or the upcoming week).
+// ("?week=YYYY-MM-DD", or the upcoming week). "&compact=1" prints the shorter labor matrix, so the schedule
+// fits on one page.
 export async function GET(request: Request) {
   const caller = await resolveCaller(request);
   if (caller instanceof Response) return caller;
   const weekStart = readWeekStart(request);
   if (weekStart instanceof Response) return weekStart;
+  const isCompact = new URL(request.url).searchParams.get("compact") === "1";
   try {
     const departmentSnapshot = await snapshot(caller.departmentId, weekStart);
-    const pdfBytes = await buildPdf(departmentSnapshot);
+    const pdfBytes = await buildPdf(departmentSnapshot, { compactMatrix: isCompact });
     // File name comes from the schedule title and the week, for example "deli-schedule-2026-11-02.pdf".
     const titleSlug =
       (departmentSnapshot.settings.schedule_title || "schedule")

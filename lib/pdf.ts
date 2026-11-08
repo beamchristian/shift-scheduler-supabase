@@ -25,6 +25,20 @@ const SHIFT_COLUMN_WIDTH = 86;
 const PAID_COLUMN_WIDTH = 52;
 const SECOND_HOURS_COLUMN_WIDTH = 52;
 
+// Height of one person's row in the schedule grid, and the smallest it may shrink to in compact mode.
+const FULL_EMPLOYEE_ROW_HEIGHT = 26;
+const SMALLEST_EMPLOYEE_ROW_HEIGHT = 20;
+
+// The height of each person's row in the schedule grid. Normally the full height. In compact mode, rows shrink
+// just enough for everyone to fit in spaceLeft (the room left on the first page), but never below the smallest
+// readable height. When even that doesn't fit, the grid carries on to a second page as usual.
+// Returns the row height in points.
+function scheduleRowHeight(spaceLeft: number, peopleCount: number, isCompact: boolean): number {
+  if (!isCompact || peopleCount === 0) return FULL_EMPLOYEE_ROW_HEIGHT;
+  const heightThatFits = spaceLeft / peopleCount;
+  return Math.max(SMALLEST_EMPLOYEE_ROW_HEIGHT, Math.min(FULL_EMPLOYEE_ROW_HEIGHT, heightThatFits));
+}
+
 // Colors used in the PDF.
 const COLORS = {
   ink: rgb(0.06, 0.09, 0.16),
@@ -58,9 +72,20 @@ const formatMoney = (amount: number) =>
 // Rounds to two decimals for hours, without trailing zeros, for example "7.5" or "8".
 const formatHours = (hours: number) => String(+hours.toFixed(2));
 
+// Choices for how the printable schedule is laid out.
+// compactMatrix: shows only the main labor matrix rows, in smaller rows, and shrinks the schedule rows when
+// needed (down to a readable minimum), so the whole schedule fits on one page whenever it can.
+export interface PdfOptions {
+  compactMatrix?: boolean;
+}
+
 // Builds the printable schedule for one department: the labor matrix, the schedule grid, and footers.
 // Returns the PDF file as bytes.
-export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
+export async function buildPdf(
+  snapshot: Snapshot,
+  options: PdfOptions = {},
+): Promise<Uint8Array> {
+  const isCompact = options.compactMatrix === true;
   const report = buildReport(snapshot);
   // Whether each shift is an opening, closing or other shift, from its times. Sets the box color.
   const shiftKindOf = shiftKindFinder(
@@ -260,12 +285,14 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
     ? "shift length"
     : "paid, minus lunch";
   // One line of the labor matrix. `sub` lines are the smaller reference figures.
+  // `detail` lines are left out of the compact matrix.
   type MatrixRow = {
     label: string;
     cells: string[];
     total: string;
     strong?: boolean;
     sub?: boolean;
+    detail?: boolean;
     flag?: boolean[];
     totalFlag?: boolean;
   };
@@ -291,6 +318,7 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
         label: "Hours to fully staff",
         cells: report.days.map((dayRow) => formatHours(dayRow.req)),
         total: formatHours(totals.req),
+        detail: true,
       },
       {
         label: referenceRowLabel,
@@ -304,6 +332,7 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
           formatMoney(dayRow.req * hourlyRate),
         ),
         total: formatMoney(totals.reqCost),
+        detail: true,
       },
       {
         label: referenceRowLabel,
@@ -349,10 +378,16 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
         totalFlag: isOverAllowance(totals.sched, totals.allowed),
       },
     ] as MatrixRow[]
-  ).filter((matrixRow) => !matrixRow.sub || report.showAlt);
-  const MAIN_ROW_HEIGHT = 15.5;
+  ).filter((matrixRow) =>
+    isCompact
+      ? !matrixRow.sub && !matrixRow.detail
+      : !matrixRow.sub || report.showAlt,
+  );
+  // The compact matrix uses shorter rows and smaller text, leaving more of the page for the schedule.
+  const MAIN_ROW_HEIGHT = isCompact ? 12 : 15.5;
   const SUB_ROW_HEIGHT = 12.5;
-  const HEADER_ROW_HEIGHT = 17;
+  const HEADER_ROW_HEIGHT = isCompact ? 14 : 17;
+  const MATRIX_FONT_SIZE = isCompact ? 7.5 : 8.5;
   drawFilledRectangle(
     PAGE_MARGIN,
     currentTop,
@@ -365,7 +400,7 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
     PAGE_MARGIN + 6,
     LABEL_COLUMN_WIDTH - 8,
     currentTop + HEADER_ROW_HEIGHT / 2,
-    8.5,
+    MATRIX_FONT_SIZE,
     boldFont,
     COLORS.white,
   );
@@ -375,7 +410,7 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
       PAGE_MARGIN + LABEL_COLUMN_WIDTH + columnIndex * DAY_COLUMN_WIDTH,
       DAY_COLUMN_WIDTH,
       currentTop + HEADER_ROW_HEIGHT / 2,
-      8.5,
+      MATRIX_FONT_SIZE,
       boldFont,
       COLORS.white,
       "center",
@@ -386,7 +421,7 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
     PAGE_MARGIN + LABEL_COLUMN_WIDTH + 6 * DAY_COLUMN_WIDTH,
     TOTAL_COLUMN_WIDTH,
     currentTop + HEADER_ROW_HEIGHT / 2,
-    8.5,
+    MATRIX_FONT_SIZE,
     boldFont,
     COLORS.white,
     "center",
@@ -394,7 +429,7 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
   currentTop += HEADER_ROW_HEIGHT;
   matrixRows.forEach((matrixRow, rowIndex) => {
     const rowHeight = matrixRow.sub ? SUB_ROW_HEIGHT : MAIN_ROW_HEIGHT;
-    const fontSize = matrixRow.sub ? 7.5 : 8.5;
+    const fontSize = matrixRow.sub ? 7.5 : MATRIX_FONT_SIZE;
     const textColor = matrixRow.sub ? COLORS.mute : COLORS.ink;
     // Every other row gets a light background, to make the rows easier to follow.
     if (rowIndex % 2 === 1)
@@ -441,7 +476,7 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
     currentTop += rowHeight;
     drawHorizontalLine(currentTop);
   });
-  currentTop += 14;
+  currentTop += isCompact ? 8 : 14;
 
   // ---- Schedule grid
   // Draws the grid's title and column headings. Called at the top of every grid page.
@@ -524,12 +559,20 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
     );
     currentTop += 40;
   } else {
-    const EMPLOYEE_ROW_HEIGHT = 26;
+    const EMPLOYEE_ROW_HEIGHT = scheduleRowHeight(
+      PAGE_HEIGHT - BOTTOM_RESERVED_SPACE - currentTop,
+      report.employees.length,
+      isCompact,
+    );
+    // Text sizes and positions inside a row, scaled from the full 26-point row.
+    const rowScale = EMPLOYEE_ROW_HEIGHT / FULL_EMPLOYEE_ROW_HEIGHT;
+    const shiftFontSize = EMPLOYEE_ROW_HEIGHT < FULL_EMPLOYEE_ROW_HEIGHT ? 6.6 : 7.2;
     for (const employeeRow of report.employees) {
-      // Start a new page when this row would run into the footer.
+      // Start a new page when this row would run into the footer. The small allowance stops rounding in a
+      // shrunk row height from pushing an exact fit onto a new page.
       if (
         currentTop + EMPLOYEE_ROW_HEIGHT >
-        PAGE_HEIGHT - BOTTOM_RESERVED_SPACE
+        PAGE_HEIGHT - BOTTOM_RESERVED_SPACE + 0.01
       ) {
         currentPage = pdfDocument.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
         currentTop = PAGE_MARGIN;
@@ -539,7 +582,7 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
         employeeRow.emp.name,
         PAGE_MARGIN + 6,
         EMPLOYEE_COLUMN_WIDTH - 10,
-        currentTop + 9,
+        currentTop + 9 * rowScale,
         8.5,
         boldFont,
       );
@@ -547,8 +590,8 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
         `${employeeRow.emp.type}${employeeRow.emp.position ? " | " + employeeRow.emp.position : ""}`,
         PAGE_MARGIN + 6,
         EMPLOYEE_COLUMN_WIDTH - 10,
-        currentTop + 19,
-        7,
+        currentTop + 19 * rowScale,
+        rowScale < 1 ? 6.5 : 7,
         regularFont,
         COLORS.mute,
       );
@@ -574,8 +617,8 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
           shiftForDay.name,
           boxLeft,
           SHIFT_COLUMN_WIDTH - 4,
-          currentTop + 9.5,
-          7.2,
+          currentTop + 9.5 * rowScale,
+          shiftFontSize,
           boldFont,
           COLORS.ink,
           "center",
@@ -584,8 +627,8 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
           `${t12(shiftForDay.start, true)} - ${t12(shiftForDay.end, true)}`,
           boxLeft,
           SHIFT_COLUMN_WIDTH - 4,
-          currentTop + 18.5,
-          7.2,
+          currentTop + 18.5 * rowScale,
+          shiftFontSize,
           regularFont,
           COLORS.ink,
           "center",
@@ -595,7 +638,7 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
         formatHours(employeeRow.hours),
         PAGE_MARGIN + EMPLOYEE_COLUMN_WIDTH + 6 * SHIFT_COLUMN_WIDTH,
         PAID_COLUMN_WIDTH,
-        currentTop + 13,
+        currentTop + EMPLOYEE_ROW_HEIGHT / 2,
         8.5,
         boldFont,
         COLORS.ink,
@@ -609,7 +652,7 @@ export async function buildPdf(snapshot: Snapshot): Promise<Uint8Array> {
             6 * SHIFT_COLUMN_WIDTH +
             PAID_COLUMN_WIDTH,
           SECOND_HOURS_COLUMN_WIDTH,
-          currentTop + 13,
+          currentTop + EMPLOYEE_ROW_HEIGHT / 2,
           8.5,
           regularFont,
           COLORS.mute,

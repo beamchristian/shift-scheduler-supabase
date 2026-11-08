@@ -58,6 +58,8 @@ export function ScheduleScreen({
   // The shift being edited, and any warnings left by the last saved change.
   const [editingShift, setEditingShift] = useState<ScheduleRow | null>(null);
   const [savedShiftWarnings, setSavedShiftWarnings] = useState<string[]>([]);
+  // True prints the shorter labor matrix, so the schedule fits on one page.
+  const [isCompactPdf, setIsCompactPdf] = useState(false);
   // The week on screen, as its Monday.
   const weekStart = data.week.week_start;
   // Figures for the summary tiles, computed from this week's data.
@@ -153,9 +155,22 @@ export function ScheduleScreen({
             />
           </div>
         </label>
-        <div className='flex flex-col gap-2 sm:flex-row'>
+        <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
+          <label
+            className='flex items-center gap-2 text-sm text-slate-600'
+            title='Prints only the main labor matrix rows, so the schedule fits on one page'
+          >
+            <input
+              type='checkbox'
+              checked={isCompactPdf}
+              onChange={(changeEvent) =>
+                setIsCompactPdf(changeEvent.target.checked)
+              }
+            />
+            Compact PDF
+          </label>
           <a
-            href={`/api/pdf?week=${weekStart}`}
+            href={`/api/pdf?week=${weekStart}${isCompactPdf ? "&compact=1" : ""}`}
             target='_blank'
             rel='noopener noreferrer'
             className={`${secondaryButtonClass} w-full sm:w-auto`}

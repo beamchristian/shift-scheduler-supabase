@@ -84,6 +84,10 @@ and each change asks you to confirm first. A published past week has to be unpub
      shows the day's actual share. That day's sales, payroll target and allowed hours update below.
 6. **Summary tiles.** "Hours to fully staff" and "Cost to fully staff" show what the shift setup needs.
    "Scheduled so far" shows what's currently assigned.
+7. **Print.** Click **Download PDF**. Tick **Compact PDF** first to fit the schedule on one page: the labor
+   matrix shows only its main rows (sales, target payroll, allowed hours, hours scheduled, scheduled payroll and
+   +/- hours), and the schedule rows shrink a little if needed. A very large team can still run onto a second
+   page.
 
 ### Closing shifts and colors
 

@@ -166,7 +166,7 @@ from the schedule rows. This is why editing one person's shift changes the secon
 | `/api/store-overview/payroll` | POST | store managers and admins | Save the store payroll target. |
 | `/api/import` | POST | admins and store managers | Replace the department's data, every saved week included, from a backup file. |
 | `/api/export` | GET | department members | Download the department's data, every saved week included. |
-| `/api/pdf` | GET | department members | Schedule as PDF. |
+| `/api/pdf` | GET | department members | Schedule as PDF. `&compact=1` prints only the main matrix rows and shrinks schedule rows (to 20pt at least) so the week fits on one page when it can. |
 | `/api/audit` | GET | department members | Recent changes. |
 | `/api/login`, `/api/logout` | POST | anyone | Sign in and out. |
 
