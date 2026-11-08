@@ -89,10 +89,56 @@ export function searchWithinClosingLimits(
   );
 }
 
+// A pool of people and the shifts only they can work. No one outside a pool can work its shifts,
+// and no one in it can work shifts outside it, so each pool can be searched on its own.
+interface StaffingPool {
+  people: number[];
+  slots: number[];
+}
+
+// Splits the week into pools: people are joined whenever they can work the same shift, and each pool holds
+// every shift its people can work. A department with separate counters (deli, sub shop, production) usually
+// splits into a few pools. Shifts nobody can work are left out, since they can never be covered.
+// Returns the pools.
+function splitIntoPools(slotCount: number, allowedMatrix: boolean[][]): StaffingPool[] {
+  const employeeCount = allowedMatrix.length;
+  // Union-find over people: each person points toward their pool's representative.
+  const parentOf = Array.from({ length: employeeCount }, (_, employeeIndex) => employeeIndex);
+  const findRoot = (employeeIndex: number): number => {
+    while (parentOf[employeeIndex] !== employeeIndex) {
+      parentOf[employeeIndex] = parentOf[parentOf[employeeIndex]];
+      employeeIndex = parentOf[employeeIndex];
+    }
+    return employeeIndex;
+  };
+  const firstAllowedBySlot = new Array(slotCount).fill(-1);
+  for (let slotIndex = 0; slotIndex < slotCount; slotIndex++)
+    for (let employeeIndex = 0; employeeIndex < employeeCount; employeeIndex++) {
+      if (!allowedMatrix[employeeIndex][slotIndex]) continue;
+      if (firstAllowedBySlot[slotIndex] < 0) firstAllowedBySlot[slotIndex] = employeeIndex;
+      else parentOf[findRoot(employeeIndex)] = findRoot(firstAllowedBySlot[slotIndex]);
+    }
+
+  const poolByRoot = new Map<number, StaffingPool>();
+  const poolOf = (employeeIndex: number): StaffingPool => {
+    const root = findRoot(employeeIndex);
+    if (!poolByRoot.has(root)) poolByRoot.set(root, { people: [], slots: [] });
+    return poolByRoot.get(root)!;
+  };
+  for (let employeeIndex = 0; employeeIndex < employeeCount; employeeIndex++)
+    poolOf(employeeIndex).people.push(employeeIndex);
+  for (let slotIndex = 0; slotIndex < slotCount; slotIndex++)
+    if (firstAllowedBySlot[slotIndex] >= 0) poolOf(firstAllowedBySlot[slotIndex]).slots.push(slotIndex);
+  return [...poolByRoot.values()].filter((pool) => pool.slots.length > 0);
+}
+
 // The shared search behind searchFullCover and searchWithinClosingLimits.
 // closingLimitsAreHard: when true, nobody may be given a close past their limit.
 // coverageToBeat: a result must cover more shifts than this to replace the current assignment.
-// Returns true when assignedEmployeeBySlot was replaced.
+// The week is searched one pool at a time (see splitIntoPools), so a dead end at one counter isn't retried
+// against every arrangement of the others. Each pool is held to the same rule as the whole week: it must
+// cover more than it does now (searchFullCover), or at least as many (searchWithinClosingLimits).
+// Returns true when assignedEmployeeBySlot was changed.
 function searchAssignment(
   shiftSlots: Slot[],
   maxHours: number[],
@@ -106,10 +152,119 @@ function searchAssignment(
   timeLimitMs: number,
 ): boolean {
   const stopAt = Date.now() + timeLimitMs;
+  const currentlyCovered = assignedEmployeeBySlot.filter((holderIndex) => holderIndex >= 0).length;
+  // How far each pool's result may sit from its current coverage: 0 means it must cover more,
+  // -1 means it must cover at least as many.
+  const coverageAllowance = searchRules.coverageToBeat - currentlyCovered;
+  let stepsLeft = stepLimit;
+  let didChange = false;
+
+  for (const pool of splitIntoPools(shiftSlots.length, allowedMatrix)) {
+    const poolCovered = pool.slots.filter((slotIndex) => assignedEmployeeBySlot[slotIndex] >= 0).length;
+    if (!poolNeedsSearch(pool, poolCovered, shiftSlots, assignedEmployeeBySlot, preferences, searchRules))
+      continue;
+    // The pool may only use the hours the rest of the week leaves in the budget.
+    const hoursOutsidePool = shiftSlots.reduce(
+      (total, slot, slotIndex) =>
+        assignedEmployeeBySlot[slotIndex] >= 0 && !pool.slots.includes(slotIndex) ? total + slot.len : total,
+      0,
+    );
+    const poolResult = searchPool(
+      shiftSlots,
+      maxHours,
+      maxDays,
+      allowedMatrix,
+      pool,
+      hourBudget - hoursOutsidePool,
+      preferences,
+      { closingLimitsAreHard: searchRules.closingLimitsAreHard, coverageToBeat: poolCovered + coverageAllowance },
+      stepsLeft,
+      stopAt,
+    );
+    stepsLeft -= poolResult.stepsUsed;
+    if (poolResult.assignment) {
+      for (const slotIndex of pool.slots) assignedEmployeeBySlot[slotIndex] = poolResult.assignment[slotIndex];
+      didChange = true;
+    }
+    if (stepsLeft <= 0 || Date.now() > stopAt) break;
+  }
+  return didChange;
+}
+
+// Whether a pool is worth searching. When looking for more coverage, a pool with every shift covered can't
+// do better. When enforcing closing limits, a pool where nobody is over their limit is already fine.
+// Returns true when the pool should be searched.
+function poolNeedsSearch(
+  pool: StaffingPool,
+  poolCovered: number,
+  shiftSlots: Slot[],
+  assignedEmployeeBySlot: number[],
+  preferences: SearchPreferences,
+  searchRules: { closingLimitsAreHard: boolean },
+): boolean {
+  if (!searchRules.closingLimitsAreHard) return poolCovered < pool.slots.length;
+  const closesByEmployee = new Map<number, number>();
+  for (const slotIndex of pool.slots) {
+    const holderIndex = assignedEmployeeBySlot[slotIndex];
+    if (holderIndex >= 0 && preferences.isClosingSlot[slotIndex])
+      closesByEmployee.set(holderIndex, (closesByEmployee.get(holderIndex) ?? 0) + 1);
+  }
+  return [...closesByEmployee].some(([employeeIndex, closes]) => closes > preferences.closingLimits[employeeIndex]);
+}
+
+// A set of people and the shifts that only those people can work.
+interface PeopleGroup {
+  people: number[];
+  // Shift indexes, shortest shift first, so the hours bound can count the cheapest shifts first.
+  slots: number[];
+}
+
+// Builds one group for each distinct set of people allowed on some of the pool's shifts. A group's shifts are
+// every pool shift whose allowed people all belong to that group, for example the closes only four Sub Shop
+// people can work. Returns the groups.
+function buildPeopleGroups(
+  shiftSlots: Slot[],
+  allowedMatrix: boolean[][],
+  pool: StaffingPool,
+): PeopleGroup[] {
+  const allowedPeopleBySlot = new Map<number, number[]>();
+  for (const slotIndex of pool.slots)
+    allowedPeopleBySlot.set(
+      slotIndex,
+      pool.people.filter((employeeIndex) => allowedMatrix[employeeIndex][slotIndex]),
+    );
+  const distinctPeopleSets = new Map<string, number[]>();
+  allowedPeopleBySlot.forEach((allowedPeople) => distinctPeopleSets.set(allowedPeople.join(","), allowedPeople));
+
+  return [...distinctPeopleSets.values()].map((groupPeople) => {
+    const isInGroup = new Set(groupPeople);
+    const groupSlots = pool.slots
+      .filter((slotIndex) => allowedPeopleBySlot.get(slotIndex)!.every((employeeIndex) => isInGroup.has(employeeIndex)))
+      .sort((first, second) => shiftSlots[first].len - shiftSlots[second].len);
+    return { people: groupPeople, slots: groupSlots };
+  });
+}
+
+// Searches one pool for an assignment of its shifts that covers more than coverageToBeat.
+// Everyone in the pool starts the search with no shifts, which is right because they can't work outside it.
+// Returns the best assignment found (only the pool's slots matter), or null, and how many steps it used.
+function searchPool(
+  shiftSlots: Slot[],
+  maxHours: number[],
+  maxDays: number[],
+  allowedMatrix: boolean[][],
+  pool: StaffingPool,
+  hourBudget: number,
+  preferences: SearchPreferences,
+  searchRules: { closingLimitsAreHard: boolean; coverageToBeat: number },
+  stepLimit: number,
+  stopAt: number,
+): { assignment: number[] | null; stepsUsed: number } {
   let isOutOfTime = false;
   const HOURS_TOLERANCE = 1e-9;
   const employeeCount = maxHours.length;
   const slotCount = shiftSlots.length;
+  const poolSlotCount = pool.slots.length;
 
   // Running state for the search: each person's hours, closes and days, and the hours used overall.
   const hoursByEmployee = new Array(employeeCount).fill(0);
@@ -140,7 +295,13 @@ function searchAssignment(
     );
 
   // Lower is tried first: people still under their minimum, then people with closes to spare, then the least busy.
-  const tryOrderScore = (slotIndex: number, employeeIndex: number) => {
+  // Among those, people with the fewest other shifts they could still take go first: giving a morning-only
+  // person the morning shift keeps the flexible people free for the closes only they can work.
+  const tryOrderScore = (
+    slotIndex: number,
+    employeeIndex: number,
+    remainingSlots: number[],
+  ) => {
     const hoursShort = Math.max(
       0,
       preferences.minHours[employeeIndex] - hoursByEmployee[employeeIndex],
@@ -149,10 +310,14 @@ function searchAssignment(
       preferences.isClosingSlot[slotIndex] &&
       closesByEmployee[employeeIndex] >=
         preferences.closingLimits[employeeIndex];
+    const otherOptions = remainingSlots.filter(
+      (otherSlotIndex) => otherSlotIndex !== slotIndex && canTake(otherSlotIndex, employeeIndex),
+    ).length;
     return (
-      (overClosingLimit ? 1000 : 0) -
-      hoursShort +
-      hoursByEmployee[employeeIndex] / 100
+      (overClosingLimit ? 1000 : 0) +
+      otherOptions -
+      hoursShort / 100 +
+      hoursByEmployee[employeeIndex] / 10000
     );
   };
 
@@ -173,12 +338,69 @@ function searchAssignment(
     trialAssignment[slotIndex] = direction === 1 ? employeeIndex : -1;
   };
 
+  const peopleGroups = buildPeopleGroups(shiftSlots, allowedMatrix, pool);
+  const isRemainingSlot = new Uint8Array(slotCount);
+
+  // How many of a group's remaining shifts can't be covered, whatever happens next. Two limits apply:
+  // each person works one shift a day, and the group's shifts must fit in the hours its people have left.
+  // Returns the larger of the two shortfalls.
+  const groupShortfall = (group: PeopleGroup): number => {
+    const remainingByDay = new Map<number, number>();
+    let remainingCount = 0;
+    for (const slotIndex of group.slots) {
+      if (!isRemainingSlot[slotIndex]) continue;
+      remainingCount++;
+      const day = shiftSlots[slotIndex].day;
+      remainingByDay.set(day, (remainingByDay.get(day) ?? 0) + 1);
+    }
+    if (!remainingCount) return 0;
+
+    let dayShortfall = 0;
+    remainingByDay.forEach((shiftsThatDay, day) => {
+      const peopleFreeThatDay = group.people.filter(
+        (employeeIndex) =>
+          !daysByEmployee[employeeIndex].has(day) &&
+          daysByEmployee[employeeIndex].size < maxDays[employeeIndex],
+      ).length;
+      dayShortfall += Math.max(0, shiftsThatDay - peopleFreeThatDay);
+    });
+
+    // Hours left across the group, never more than the budget allows. Counting the shortest
+    // shifts first gives the most shifts those hours could possibly cover.
+    let hoursLeft = group.people.reduce(
+      (total, employeeIndex) =>
+        total + Math.max(0, maxHours[employeeIndex] - hoursByEmployee[employeeIndex]),
+      0,
+    );
+    hoursLeft = Math.min(hoursLeft, hourBudget - hoursUsed);
+    let coverableCount = 0;
+    for (const slotIndex of group.slots) {
+      if (!isRemainingSlot[slotIndex]) continue;
+      hoursLeft -= shiftSlots[slotIndex].len;
+      if (hoursLeft < -HOURS_TOLERANCE) break;
+      coverableCount++;
+    }
+    return Math.max(dayShortfall, remainingCount - coverableCount);
+  };
+
+  // The most shifts this branch could still cover: everything covered so far and everything remaining,
+  // less the largest shortfall of any one group. Groups overlap, so their shortfalls can't be added together.
+  const coverageUpperBound = (remainingSlots: number[], coveredSoFar: number): number => {
+    isRemainingSlot.fill(0);
+    for (const slotIndex of remainingSlots) isRemainingSlot[slotIndex] = 1;
+    let largestShortfall = 0;
+    for (const group of peopleGroups)
+      largestShortfall = Math.max(largestShortfall, groupShortfall(group));
+    return coveredSoFar + remainingSlots.length - largestShortfall;
+  };
+
   // Tries to cover the remaining slots. Always works on the slot with the fewest people able to take it,
-  // and gives up on a branch as soon as it can no longer beat the best result so far.
+  // and gives up on a branch as soon as it can no longer beat the best result so far. Tight weeks, where
+  // a few people are close to their max hours, need the group bound to give up on dead ends early enough.
   const search = (remainingSlots: number[], coveredSoFar: number): void => {
     // Reading the clock every step is slow, so it is checked every thousand steps.
     if (++stepCount % 1000 === 0 && Date.now() > stopAt) isOutOfTime = true;
-    if (isOutOfTime || stepCount > stepLimit || bestCovered === slotCount)
+    if (isOutOfTime || stepCount > stepLimit || bestCovered === poolSlotCount)
       return;
     if (coveredSoFar > bestCovered) {
       bestCovered = coveredSoFar;
@@ -186,7 +408,8 @@ function searchAssignment(
     }
     if (
       !remainingSlots.length ||
-      coveredSoFar + remainingSlots.length <= bestCovered
+      coveredSoFar + remainingSlots.length <= bestCovered ||
+      coverageUpperBound(remainingSlots, coveredSoFar) <= bestCovered
     )
       return;
 
@@ -194,13 +417,7 @@ function searchAssignment(
     let chosenCandidates: number[] = [];
     let fewestCandidates = Infinity;
     remainingSlots.forEach((slotIndex, position) => {
-      const candidates: number[] = [];
-      for (
-        let employeeIndex = 0;
-        employeeIndex < employeeCount;
-        employeeIndex++
-      )
-        if (canTake(slotIndex, employeeIndex)) candidates.push(employeeIndex);
+      const candidates = pool.people.filter((employeeIndex) => canTake(slotIndex, employeeIndex));
       if (candidates.length < fewestCandidates) {
         fewestCandidates = candidates.length;
         chosenPosition = position;
@@ -212,30 +429,28 @@ function searchAssignment(
       (_, position) => position !== chosenPosition,
     );
 
+    const scoreByCandidate = new Map(
+      chosenCandidates.map((employeeIndex) => [
+        employeeIndex,
+        tryOrderScore(slotIndex, employeeIndex, remainingSlots),
+      ]),
+    );
     chosenCandidates.sort(
-      (first, second) =>
-        tryOrderScore(slotIndex, first) - tryOrderScore(slotIndex, second),
+      (first, second) => scoreByCandidate.get(first)! - scoreByCandidate.get(second)!,
     );
     for (const employeeIndex of chosenCandidates) {
       place(slotIndex, employeeIndex, 1);
       search(otherSlots, coveredSoFar + 1);
       place(slotIndex, employeeIndex, -1);
-      if (bestCovered === slotCount || stepCount > stepLimit || isOutOfTime)
+      if (bestCovered === poolSlotCount || stepCount > stepLimit || isOutOfTime)
         return;
     }
     // Leaving this slot open can still lead to a better result for the others.
     search(otherSlots, coveredSoFar);
   };
 
-  search(
-    shiftSlots.map((_, slotIndex) => slotIndex),
-    0,
-  );
-  if (!bestAssignment) return false;
-  (bestAssignment as number[]).forEach((holderIndex, slotIndex) => {
-    assignedEmployeeBySlot[slotIndex] = holderIndex;
-  });
-  return true;
+  search([...pool.slots], 0);
+  return { assignment: bestAssignment, stepsUsed: stepCount };
 }
 
 // Fills open shifts that the first-pass assignment could not place, using "ejection chains".
