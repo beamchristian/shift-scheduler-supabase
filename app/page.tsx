@@ -479,6 +479,7 @@ export default function Page() {
 
         {currentTab === "Shifts" && (
           <ShiftsScreen
+            data={data}
             weekStart={shownWeek}
             shiftTemplates={data.shift_templates}
             employees={data.employees}

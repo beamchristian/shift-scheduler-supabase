@@ -196,9 +196,6 @@ export function LaborMatrix({
 
   return (
     <>
-      <h2 className='mb-1 mt-6 text-sm font-semibold text-slate-700'>
-        Labor matrix
-      </h2>
       <p className='mb-2 text-xs text-slate-500'>
         Day weights split the weekly forecast across the days. They are
         relative, so they don't need to add up to 100. Change one and the

@@ -1,5 +1,5 @@
 "use client";
-import { logicHours, type BreakRule } from "../../../lib/hours";
+import { breakRule, logicHours, type BreakRule } from "../../../lib/hours";
 import { shiftKindFinder, type ShiftKind } from "../../../lib/rules";
 import type { Snapshot } from "../../../lib/types";
 import {
@@ -10,6 +10,7 @@ import {
   shiftChipClasses,
 } from "../../../lib/ui/format";
 import { cardClass } from "../../../lib/ui/styles";
+import { withWeekNumbers } from "../../../lib/weeks";
 
 // How many shifts of one kind are on one day, and the hours they add up to.
 interface DayTally {
@@ -17,7 +18,20 @@ interface DayTally {
   hours: number;
 }
 
-// One row of the totals table: a shift name as scheduled, with its tally for each day and for the week.
+// What the table counts: the shifts scheduled this week, or the people the shift templates ask for.
+export type ShiftTotalsSource = "schedule" | "templates";
+
+// One shift to count: its name, day and times, and how many people it stands for.
+// A scheduled shift is one person; a template is as many people as it needs.
+interface CountedShift {
+  name: string;
+  day: number;
+  start: string;
+  end: string;
+  peopleCount: number;
+}
+
+// One row of the totals table: a shift name, with its tally for each day and for the week.
 interface ShiftTotalsRow {
   shiftName: string;
   shiftKind: ShiftKind;
@@ -38,48 +52,66 @@ function emptyTallyByDay(): Record<number, DayTally> {
   return tallyByDay;
 }
 
-// Adds one shift's hours to a tally. Returns nothing; the tally is changed in place.
-function addToTally(tally: DayTally, shiftHours: number): void {
-  tally.shiftCount += 1;
-  tally.hours += shiftHours;
+// Adds a number of people working one shift to a tally. Returns nothing; the tally is changed in place.
+function addToTally(tally: DayTally, peopleCount: number, shiftHours: number): void {
+  tally.shiftCount += peopleCount;
+  tally.hours += peopleCount * shiftHours;
 }
 
-// Groups the week's scheduled shifts by name and counts them per day.
-// Hours use the same rule as the labor matrix, so the totals match "Hours scheduled" there.
+// Lists the shifts to count for the chosen source.
+// Returns one entry per scheduled shift, or one per template with its people needed.
+function countedShiftsFor(data: Snapshot, source: ShiftTotalsSource): CountedShift[] {
+  if (source === "schedule")
+    return data.schedule.map((scheduledShift) => ({ ...scheduledShift, peopleCount: 1 }));
+  return data.shift_templates.map((shiftTemplate) => ({
+    name: shiftTemplate.name,
+    day: Number(shiftTemplate.day),
+    start: shiftTemplate.start,
+    end: shiftTemplate.end,
+    peopleCount: Number(shiftTemplate.needed) || 0,
+  }));
+}
+
+// Groups the shifts by name and counts the people on each per day.
+// Hours use the same rule as the labor matrix, so scheduled totals match "Hours scheduled" there
+// and template totals match "Hours to fully staff".
 // Returns the rows ordered openers, others, then closers, each by earliest start and then name.
 export function buildShiftTotalsRows(
   data: Snapshot,
   breakSettings: BreakRule,
+  source: ShiftTotalsSource,
 ): ShiftTotalsRow[] {
   const shiftKindOf = shiftKindFinder(
     data.shift_templates,
     data.settings.closing_time,
   );
   const rowsByName = new Map<string, ShiftTotalsRow>();
-  for (const scheduledShift of data.schedule) {
-    let totalsRow = rowsByName.get(scheduledShift.name);
+  for (const countedShift of countedShiftsFor(data, source)) {
+    // A template that needs nobody adds nothing, so it doesn't get an empty row.
+    if (countedShift.peopleCount <= 0) continue;
+    let totalsRow = rowsByName.get(countedShift.name);
     if (!totalsRow) {
       totalsRow = {
-        shiftName: scheduledShift.name,
-        shiftKind: shiftKindOf(scheduledShift),
-        earliestStartMinutes: minutesOfDay(scheduledShift.start),
+        shiftName: countedShift.name,
+        shiftKind: shiftKindOf(countedShift),
+        earliestStartMinutes: minutesOfDay(countedShift.start),
         tallyByDay: emptyTallyByDay(),
         weekTally: { shiftCount: 0, hours: 0 },
       };
-      rowsByName.set(scheduledShift.name, totalsRow);
+      rowsByName.set(countedShift.name, totalsRow);
     }
     const shiftHours = logicHours(
-      scheduledShift.start,
-      scheduledShift.end,
+      countedShift.start,
+      countedShift.end,
       breakSettings,
     );
     totalsRow.earliestStartMinutes = Math.min(
       totalsRow.earliestStartMinutes,
-      minutesOfDay(scheduledShift.start),
+      minutesOfDay(countedShift.start),
     );
-    const dayTally = totalsRow.tallyByDay[scheduledShift.day];
-    if (dayTally) addToTally(dayTally, shiftHours);
-    addToTally(totalsRow.weekTally, shiftHours);
+    const dayTally = totalsRow.tallyByDay[countedShift.day];
+    if (dayTally) addToTally(dayTally, countedShift.peopleCount, shiftHours);
+    addToTally(totalsRow.weekTally, countedShift.peopleCount, shiftHours);
   }
   return Array.from(rowsByName.values()).sort(
     (firstRow, secondRow) =>
@@ -128,29 +160,39 @@ function TallyCell({
   );
 }
 
-// The "Shift totals" table: how many of each shift are scheduled on each day of the week, with hours,
+// The "Shift totals" table: how many people each shift has on each day of the week, with hours,
 // a week total column and a totals row. Shift names are colored as openers, closers or other.
+// source "schedule" counts this week's scheduled shifts; "templates" counts the people the templates need.
+// The title comes from the section around it. Shows a short note when there is nothing to count.
 export function ShiftTotalsTable({
   data,
-  breakSettings,
+  source = "schedule",
 }: {
   data: Snapshot;
-  // The break rule from the report, so the hours match the labor matrix.
-  breakSettings: BreakRule;
+  source?: ShiftTotalsSource;
 }) {
-  const totalsRows = buildShiftTotalsRows(data, breakSettings);
-  if (totalsRows.length === 0) return null;
+  // The same break rule the labor matrix uses (see buildReport), so the hours match it.
+  const breakSettings = breakRule(withWeekNumbers(data).settings);
+  const totalsRows = buildShiftTotalsRows(data, breakSettings, source);
+  const isTemplateCount = source === "templates";
+  if (totalsRows.length === 0)
+    return (
+      <div className={`${cardClass} p-6 text-center text-sm text-slate-500`}>
+        {isTemplateCount
+          ? "No shift templates need anyone yet, so there are no totals to show."
+          : "Nothing is scheduled this week yet, so there are no totals to show."}
+      </div>
+    );
   const columnTotals = sumTotalsRows(totalsRows);
   const headerCellClass =
     "px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500";
 
   return (
     <>
-      <h2 className='mb-1 mt-8 text-sm font-semibold text-slate-700'>
-        Shift totals
-      </h2>
       <p className='mb-2 text-xs text-slate-500'>
-        How many of each shift are scheduled each day, with their hours.
+        {isTemplateCount
+          ? "How many people the shift templates need each day, with their hours. This is what a fully staffed week looks like."
+          : "How many of each shift are scheduled each day, with their hours."}
       </p>
       <div className={`${cardClass} overflow-x-auto`}>
         <table className='min-w-full text-sm'>

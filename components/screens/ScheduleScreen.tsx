@@ -11,6 +11,7 @@ import {
 } from "../../lib/ui/styles";
 import type { StaffingCheck } from "../types";
 import { Callout } from "../ui/Callout";
+import { CollapsibleSection } from "../ui/CollapsibleSection";
 import { Heading } from "../ui/Heading";
 import { StatTile } from "../ui/StatTile";
 import { LaborMatrix } from "./schedule/LaborMatrix";
@@ -82,6 +83,14 @@ export function ScheduleScreen({
     ? (requiredCost / weeklySales) * 100
     : 0;
   const coverageNotes = buildCoverageNotes(data, report);
+
+  // How many checks need a look, shown on the section's title bar so it is visible even when closed.
+  const checksToReviewCount =
+    (isOverBudget ? 1 : 0) +
+    coverageNotes.length +
+    (staffingCheck?.config.length ?? 0) +
+    (staffingCheck && staffingCheck.unfilled.length > 0 ? 1 : 0) +
+    (staffingCheck && staffingCheck.underMin.length > 0 ? 1 : 0);
 
   // Counts the unfilled shifts by name, so "Mon Opener x2" can be shown.
   const unfilledCounts: Record<string, number> = {};
@@ -214,100 +223,115 @@ export function ScheduleScreen({
         />
       </div>
 
-      <div className='mb-4 space-y-2'>
-        {isOverBudget ? (
-          <Callout tone='warn'>
-            Full coverage is {roundTo2(requiredTotal - allowedTotal)} hrs over
-            budget. At {payrollPercent}% payroll you would need about $
-            {payrollPercent > 0
-              ? Math.ceil(
-                  requiredCost / (payrollPercent / 100),
-                ).toLocaleString()
-              : 0}{" "}
-            in weekly sales to afford it, or raise the payroll target to{" "}
-            {requiredCostPercent.toFixed(1)}%.
-          </Callout>
-        ) : (
-          <Callout tone='ok'>
-            Within budget, with {roundTo2(allowedTotal - requiredTotal)} hrs to
-            spare.
-            {Number(data.settings.fill_extra) !== 0 &&
-              " Generate adds extra shifts up to each day budget, weighted toward your busiest days."}
-          </Callout>
-        )}
-        {coverageNotes.map((noteText, noteIndex) => (
-          <Callout key={noteIndex} tone='warn'>
-            {noteText}
-          </Callout>
-        ))}
-        {staffingCheck?.config.map((configText, configIndex) => (
-          <Callout key={configIndex} tone='warn'>
-            {configText}
-          </Callout>
-        ))}
-        {staffingCheck &&
-          (staffingCheck.unfilled.length === 0 ? (
-            <Callout tone='ok'>
-              Your team can cover every required shift, ignoring payroll.
+      <CollapsibleSection
+        title='Budget and staffing checks'
+        storageKey='schedule_checks'
+        badgeText={
+          checksToReviewCount > 0 ? `${checksToReviewCount} to review` : "All clear"
+        }
+        badgeTone={checksToReviewCount > 0 ? "warn" : "ok"}
+      >
+        <div className='space-y-2'>
+          {isOverBudget ? (
+            <Callout tone='warn'>
+              Full coverage is {roundTo2(requiredTotal - allowedTotal)} hrs over
+              budget. At {payrollPercent}% payroll you would need about $
+              {payrollPercent > 0
+                ? Math.ceil(
+                    requiredCost / (payrollPercent / 100),
+                  ).toLocaleString()
+                : 0}{" "}
+              in weekly sales to afford it, or raise the payroll target to{" "}
+              {requiredCostPercent.toFixed(1)}%.
             </Callout>
           ) : (
-            <Callout tone='warn'>
-              Even with no payroll limit, your team cannot cover:{" "}
-              {Object.entries(unfilledCounts)
-                .map(
-                  ([shiftName, count]) =>
-                    `${shiftName}${count > 1 ? ` x${count}` : ""}`,
-                )
-                .join(", ")}
-              . Your team can cover {staffingCheck.capacity} of the{" "}
-              {staffingCheck.needed} required shifts.
-              {/* Why each shift is open, so the fix is clear without guessing. */}
-              {(staffingCheck.unfilledReasons ?? []).length > 0 && (
-                <ul className='mt-2 list-disc space-y-1 pl-5'>
-                  {staffingCheck.unfilledReasons!.map((reasonText) => (
-                    <li key={reasonText}>{reasonText}</li>
-                  ))}
-                </ul>
-              )}
+            <Callout tone='ok'>
+              Within budget, with {roundTo2(allowedTotal - requiredTotal)} hrs to
+              spare.
+              {Number(data.settings.fill_extra) !== 0 &&
+                " Generate adds extra shifts up to each day budget, weighted toward your busiest days."}
+            </Callout>
+          )}
+          {coverageNotes.map((noteText, noteIndex) => (
+            <Callout key={noteIndex} tone='warn'>
+              {noteText}
             </Callout>
           ))}
-        {staffingCheck && staffingCheck.underMin.length > 0 && (
-          <Callout tone='warn'>
-            Likely under minimum hours: {staffingCheck.underMin.join(", ")}.
-          </Callout>
-        )}
-      </div>
+          {staffingCheck?.config.map((configText, configIndex) => (
+            <Callout key={configIndex} tone='warn'>
+              {configText}
+            </Callout>
+          ))}
+          {staffingCheck &&
+            (staffingCheck.unfilled.length === 0 ? (
+              <Callout tone='ok'>
+                Your team can cover every required shift, ignoring payroll.
+              </Callout>
+            ) : (
+              <Callout tone='warn'>
+                Even with no payroll limit, your team cannot cover:{" "}
+                {Object.entries(unfilledCounts)
+                  .map(
+                    ([shiftName, count]) =>
+                      `${shiftName}${count > 1 ? ` x${count}` : ""}`,
+                  )
+                  .join(", ")}
+                . Your team can cover {staffingCheck.capacity} of the{" "}
+                {staffingCheck.needed} required shifts.
+                {/* Why each shift is open, so the fix is clear without guessing. */}
+                {(staffingCheck.unfilledReasons ?? []).length > 0 && (
+                  <ul className='mt-2 list-disc space-y-1 pl-5'>
+                    {staffingCheck.unfilledReasons!.map((reasonText) => (
+                      <li key={reasonText}>{reasonText}</li>
+                    ))}
+                  </ul>
+                )}
+              </Callout>
+            ))}
+          {staffingCheck && staffingCheck.underMin.length > 0 && (
+            <Callout tone='warn'>
+              Likely under minimum hours: {staffingCheck.underMin.join(", ")}.
+            </Callout>
+          )}
+        </div>
+      </CollapsibleSection>
 
       {staffingCheck && staffingCheck.suggestions.length > 0 && (
-        <div className={`${cardClass} mb-4 p-4`}>
-          <h2 className='text-sm font-semibold text-slate-900'>
-            Ways to fix it
-          </h2>
-          <ul className='mt-2 divide-y divide-slate-100'>
-            {staffingCheck.suggestions.map((suggestion, suggestionIndex) => (
-              <li key={suggestionIndex} className='py-2.5 text-sm'>
-                <span className='font-semibold text-slate-900'>
-                  {suggestion.title}.
-                </span>{" "}
-                <span className='text-slate-600'>{suggestion.detail}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <CollapsibleSection
+          title='Ways to fix it'
+          storageKey='schedule_fixes'
+          badgeText={String(staffingCheck.suggestions.length)}
+        >
+          <div className={`${cardClass} px-4 py-1`}>
+            <ul className='divide-y divide-slate-100'>
+              {staffingCheck.suggestions.map((suggestion, suggestionIndex) => (
+                <li key={suggestionIndex} className='py-2.5 text-sm'>
+                  <span className='font-semibold text-slate-900'>
+                    {suggestion.title}.
+                  </span>{" "}
+                  <span className='text-slate-600'>{suggestion.detail}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </CollapsibleSection>
       )}
 
       {warnings.length > 0 && (
-        <div className='mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4'>
-          <h2 className='text-sm font-semibold text-amber-900'>
-            Generated with {warnings.length} warning
-            {warnings.length > 1 ? "s" : ""}
-          </h2>
-          <ul className='mt-1 list-disc space-y-0.5 pl-5 text-sm text-amber-900'>
-            {warnings.map((warningText, warningIndex) => (
-              <li key={warningIndex}>{warningText}</li>
-            ))}
-          </ul>
-        </div>
+        <CollapsibleSection
+          title='Generator warnings'
+          storageKey='schedule_generator_warnings'
+          badgeText={`${warnings.length} warning${warnings.length > 1 ? "s" : ""}`}
+          badgeTone='warn'
+        >
+          <div className='rounded-xl border border-amber-200 bg-amber-50 p-4'>
+            <ul className='list-disc space-y-0.5 pl-5 text-sm text-amber-900'>
+              {warnings.map((warningText, warningIndex) => (
+                <li key={warningIndex}>{warningText}</li>
+              ))}
+            </ul>
+          </div>
+        </CollapsibleSection>
       )}
 
       {savedShiftWarnings.length > 0 && (
@@ -342,13 +366,15 @@ export function ScheduleScreen({
           }}
         />
       )}
-      <LaborMatrix
-        report={report}
-        weekStart={weekStart}
-        isLocked={isLocked}
-        dayWeights={report.dayWeights}
-        onSaveDayWeight={onSaveDayWeight}
-      />
+      <CollapsibleSection title='Labor matrix' storageKey='schedule_labor_matrix'>
+        <LaborMatrix
+          report={report}
+          weekStart={weekStart}
+          isLocked={isLocked}
+          dayWeights={report.dayWeights}
+          onSaveDayWeight={onSaveDayWeight}
+        />
+      </CollapsibleSection>
 
       <h2 className='mb-2 mt-8 text-sm font-semibold text-slate-700'>
         Schedule
@@ -373,7 +399,13 @@ export function ScheduleScreen({
           }}
         />
       )}
-      <ShiftTotalsTable data={data} breakSettings={report.rule} />
+      {data.schedule.length > 0 && (
+        <div className='mt-8'>
+          <CollapsibleSection title='Shift totals' storageKey='schedule_shift_totals'>
+            <ShiftTotalsTable data={data} />
+          </CollapsibleSection>
+        </div>
+      )}
     </>
   );
 }

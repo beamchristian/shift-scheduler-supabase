@@ -17,7 +17,9 @@ import {
 import { cardClass } from "../../lib/ui/styles";
 import { EditableTable } from "../EditableTable/EditableTable";
 import type { ColumnDefinition, TableRow } from "../types";
+import { CollapsibleSection } from "../ui/CollapsibleSection";
 import { Heading } from "../ui/Heading";
+import { ShiftTotalsTable } from "./schedule/ShiftTotalsTable";
 
 // Which days the screen shows: one day, or every day in its own section.
 type DayChoice = number | "all";
@@ -171,10 +173,12 @@ function ShiftColorKey() {
   );
 }
 
-// The Shifts screen: the shift templates, one day at a time (or all days in sections), sorted by start time.
+// The Shifts screen: the totals of what the shift templates need, then the shift templates, one day at a time
+// (or all days in sections), sorted by start time.
 // Each row starts with a colored 12-hour time chip so openers and closers stand out.
 // Editing, duplicating, adding and removing work the same as before; each day has its own Add button.
 export function ShiftsScreen({
+  data,
   weekStart,
   shiftTemplates,
   employees,
@@ -183,6 +187,8 @@ export function ShiftsScreen({
   highlightedId,
   onRowAdded,
 }: {
+  // The department's data, for the shift totals table (it counts the templates in it).
+  data: Snapshot;
   // The week on screen, as its Monday. Saves reply with that week's data.
   weekStart: string;
   shiftTemplates: Snapshot["shift_templates"];
@@ -246,6 +252,9 @@ export function ShiftsScreen({
         for certain people, enter their names in the last column, separated by
         commas.
       </Heading>
+      <CollapsibleSection title='Shift totals' storageKey='shifts_shift_totals'>
+        <ShiftTotalsTable data={data} source='templates' />
+      </CollapsibleSection>
       <DayPicker
         shiftTemplates={shiftTemplates}
         chosenDay={chosenDay}
