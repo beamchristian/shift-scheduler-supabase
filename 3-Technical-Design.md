@@ -2,7 +2,7 @@
 
 ## Stack
 
-- **Next.js 14.2** (App Router), React 18, TypeScript, Tailwind CSS.
+- **Next.js 16.4** (App Router), React 19, TypeScript, Tailwind CSS.
 - **Supabase**: Postgres for data, and Supabase Auth for sign-in (email and password).
 - **postgres.js** for database access from the server.
 - **pdf-lib** for PDF output.
@@ -13,7 +13,7 @@
 - `app/page.tsx` is the single client page. It loads one department's data, holds the screen state, and
   renders the screens in `components/screens/`.
 - `app/api/*/route.ts` are the server endpoints. Each one checks the caller first, then does its work.
-- `middleware.ts` keeps pages behind sign-in.
+- `proxy.ts` (Next.js 16's name for middleware) keeps pages behind sign-in and refreshes the session token.
 - `lib/` holds the logic: access checks, scheduling, labor math, validation, and database helpers. It has no
   UI code, so it can be tested on its own.
 

@@ -13,7 +13,7 @@ const PUBLIC_PATHS = new Set(["/login", "/api/login"]);
 
 // Runs before every request. Sends people who are not signed in to the sign-in page,
 // or returns a "please sign in" error for API calls. Department access is checked inside each API route.
-export async function middleware(incomingRequest: NextRequest) {
+export async function proxy(incomingRequest: NextRequest) {
   const requestedPath = incomingRequest.nextUrl.pathname;
   if (PUBLIC_PATHS.has(requestedPath)) return NextResponse.next();
 
@@ -65,7 +65,7 @@ async function continueWithRefreshedSession(
   return response;
 }
 
-// Which paths the middleware runs on: everything except Next.js static files and the favicon.
+// Which paths the proxy runs on: everything except Next.js static files and the favicon.
 export const config = {
   matcher: "/((?!_next/static|_next/image|favicon.ico).*)",
 };
