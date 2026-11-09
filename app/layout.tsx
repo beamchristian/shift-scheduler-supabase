@@ -19,9 +19,13 @@ export const metadata: Metadata = {
   },
 };
 
-// Colors the phone's status bar to match the app's white top bar.
+// Colors the phone's status bar to match the app's top bar: white in light mode, the dark card color in dark mode.
 export const viewport: Viewport = {
-  themeColor: "#ffffff",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f172a" },
+  ],
+  colorScheme: "light dark",
 };
 
 // The outer frame of every page: the HTML document and its body styling.

@@ -3,7 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#ffffff" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
     <title>Offline · Shift Scheduler</title>
     <link rel="icon" href="/icons/favicon-32.png" />
     <!-- Shown by the service worker (public/sw.js) when the app is opened with no connection. -->
@@ -58,6 +60,20 @@
       }
       button:hover {
         background: #4338ca;
+      }
+      /* Matches the app's dark colors when the device is in dark mode. */
+      @media (prefers-color-scheme: dark) {
+        body {
+          background: #0b1222;
+          color: #f8fafc;
+        }
+        .card {
+          background: #0f172a;
+          border-color: #334155;
+        }
+        p {
+          color: #cbd5e1;
+        }
       }
     </style>
   </head>
