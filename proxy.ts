@@ -65,7 +65,10 @@ async function continueWithRefreshedSession(
   return response;
 }
 
-// Which paths the proxy runs on: everything except Next.js static files and the favicon.
+// Which paths the proxy runs on: everything except Next.js static files and the files that make the app
+// installable (manifest, service worker, offline page, icons). Browsers fetch the manifest without the
+// sign-in cookie, and the offline page must load with no session, so these stay public. None hold data.
 export const config = {
-  matcher: "/((?!_next/static|_next/image|favicon.ico).*)",
+  matcher:
+    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|offline.html|icons/).*)",
 };
