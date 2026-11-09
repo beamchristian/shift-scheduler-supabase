@@ -16,11 +16,12 @@ import { StatTile } from "../ui/StatTile";
 import { LaborMatrix } from "./schedule/LaborMatrix";
 import { ScheduleGrid } from "./schedule/ScheduleGrid";
 import { ShiftEditor } from "./schedule/ShiftEditor";
+import { ShiftTotalsTable } from "./schedule/ShiftTotalsTable";
 import { buildCoverageNotes } from "./schedule/coverageNotes";
 import { dateOfDay, shortDateLabel, weekLabel } from "../../lib/weeks";
 
 // The Schedule screen for one week: the week picker, the week's forecast, the budget summary, the staffing check,
-// the labor matrix, and the generated schedule.
+// the labor matrix, the generated schedule, and the totals of each shift type.
 export function ScheduleScreen({
   data,
   weekBar,
@@ -372,6 +373,7 @@ export function ScheduleScreen({
           }}
         />
       )}
+      <ShiftTotalsTable data={data} breakSettings={report.rule} />
     </>
   );
 }

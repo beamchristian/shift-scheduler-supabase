@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { SESSION_COOKIE, signIn } from "../../../lib/auth";
+import { signIn, writeSessionCookies } from "../../../lib/auth";
 
 export const dynamic = "force-dynamic";
 
-// Signs a person in with their email and password, and stores the access token in a cookie.
+// Signs a person in with their email and password, and stores the session tokens in httpOnly cookies.
 export async function POST(request: Request) {
   const requestBody = (await request.json().catch(() => ({}))) as {
     email?: string;
@@ -20,13 +20,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: signInResult.error }, { status: 401 });
 
   const response = NextResponse.json({ ok: true });
-  // httpOnly keeps the token away from page scripts. It expires when Supabase's token does.
-  response.cookies.set(SESSION_COOKIE, signInResult.token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: signInResult.maxAge,
-  });
+  // The access token lasts about an hour; the refresh cookie keeps the person signed in after that.
+  writeSessionCookies(response, signInResult);
   return response;
 }

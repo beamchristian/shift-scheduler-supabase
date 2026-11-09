@@ -1,5 +1,5 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import type { Snapshot, TableName } from "../../lib/types";
 import { callApi } from "../../lib/ui/format";
 import { cardClass, secondaryButtonClass } from "../../lib/ui/styles";
@@ -9,7 +9,8 @@ import { EditableCell } from "./EditableCell";
 // An editable table. A table on a computer, and stacked cards on a phone.
 // Saves a row whenever one of its fields changes.
 // Props: which table it edits, the week on screen, its columns and rows, the default values for a new row,
-// and options for hiding the add/remove buttons, allowing duplicates, and highlighting a new row.
+// and options for hiding the add/remove buttons, allowing duplicates, highlighting a new row,
+// and showing a read-only summary (such as a colored time range) at the start of each row.
 export function EditableTable(props: {
   table: TableName;
   // The week on screen, as its Monday. Each save replies with that week's data, so the screen stays on it.
@@ -23,6 +24,10 @@ export function EditableTable(props: {
   highlightedId?: number | null;
   onRowAdded?: (newRowId: number) => void;
   canDuplicate?: boolean;
+  // Optional read-only summary for a row, shown as the first column on computers and at the top of each phone card.
+  renderRowSummary?: (row: TableRow) => ReactNode;
+  // Heading for the summary column.
+  summaryLabel?: string;
 }) {
   const {
     table,
@@ -36,6 +41,8 @@ export function EditableTable(props: {
     highlightedId,
     onRowAdded,
     canDuplicate,
+    renderRowSummary,
+    summaryLabel,
   } = props;
 
   // Saves one row. A row without an id is new, so the id of the row the server created is passed on.
@@ -81,6 +88,11 @@ export function EditableTable(props: {
         <table className='min-w-full divide-y divide-slate-200 text-sm'>
           <thead className='bg-slate-50'>
             <tr>
+              {renderRowSummary && (
+                <th className='px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500'>
+                  {summaryLabel}
+                </th>
+              )}
               {columns.map((column) => (
                 <th
                   key={column.key}
@@ -99,8 +111,13 @@ export function EditableTable(props: {
                 id={`row-d-${table}-${tableRow.id}`}
                 className={`transition-colors ${tableRow.id === highlightedId ? "bg-indigo-50 ring-2 ring-inset ring-indigo-300" : "hover:bg-slate-50/60"}`}
               >
+                {renderRowSummary && (
+                  <td className='whitespace-nowrap px-3 py-2 align-middle'>
+                    {renderRowSummary(tableRow)}
+                  </td>
+                )}
                 {columns.map((column, columnIndex) => (
-                  <td key={column.key} className='px-2 py-2 align-middle'>
+                  <td key={column.key} className={`px-2 py-2 align-middle ${column.cellClassName ?? ""}`}>
                     {columnIndex === 0 && tableRow.id === highlightedId && (
                       <span className='mb-1 block w-fit rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white'>
                         New
@@ -161,6 +178,7 @@ export function EditableTable(props: {
                 New
               </span>
             )}
+            {renderRowSummary?.(tableRow)}
             {columns.map((column) => (
               <label key={column.key} className='block'>
                 <span className='mb-1 block text-xs font-medium text-slate-500'>

@@ -482,6 +482,7 @@ export default function Page() {
             weekStart={shownWeek}
             shiftTemplates={data.shift_templates}
             employees={data.employees}
+            closingTime={data.settings.closing_time}
             onDataChange={setData}
             highlightedId={highlightedIdFor("shift_templates")}
             onRowAdded={(newRowId) => markRowAsNew("shift_templates", newRowId)}

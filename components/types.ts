@@ -51,6 +51,8 @@ export type ColumnDefinition = {
   options?: (string | number)[];
   // Turns a dropdown choice into the text shown to the person.
   formatOption?: (optionValue: string | number) => string;
+  // Extra Tailwind classes for this column's cells on computers, such as a minimum width.
+  cellClassName?: string;
 };
 
 // The result of generating a schedule: the new data, plus any warnings.
