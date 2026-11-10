@@ -54,24 +54,28 @@ export function AppHeader({
           <div className='flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-sm font-bold text-white'>
             S
           </div>
-          <span className='text-base font-semibold tracking-tight'>
+          <span className='whitespace-nowrap text-base font-semibold tracking-tight'>
             Shift Scheduler
           </span>
         </div>
         <nav className='hidden gap-1 md:flex'>
           {visibleTabs.map((tabName) => (
+            // Below extra-wide screens the tabs show only their icons, so the bar never runs off the side.
+            // The name still shows on hover and is read out by screen readers.
             <button
               key={tabName}
               onClick={() => onSelectTab(tabName)}
-              className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${currentTab === tabName ? "bg-indigo-50 text-indigo-700" : "text-slate-600 hover:bg-slate-100"}`}
+              title={tabName}
+              aria-label={tabName}
+              className={`flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium transition xl:px-3 ${currentTab === tabName ? "bg-indigo-50 text-indigo-700" : "text-slate-600 hover:bg-slate-100"}`}
             >
               <TabIcon tab={tabName} />
-              {tabName}
+              <span className='hidden whitespace-nowrap xl:inline'>{tabName}</span>
             </button>
           ))}
         </nav>
         {currentUser && (
-          <span className='hidden text-xs font-medium text-slate-500 lg:inline'>
+          <span className='hidden text-xs font-medium text-slate-500 2xl:inline'>
             {roleLabel(currentUser)}
           </span>
         )}
@@ -80,7 +84,7 @@ export function AppHeader({
             // More than one department: show a dropdown to switch between them, grouped by store.
             <select
               aria-label='Department'
-              className={`${fieldClass} w-auto py-1.5 text-sm`}
+              className={`${fieldClass} w-auto max-w-[12rem] py-1.5 text-sm`}
               value={currentUser.departmentId}
               onChange={(changeEvent) =>
                 onSwitchDepartment(Number(changeEvent.target.value))
@@ -107,7 +111,7 @@ export function AppHeader({
           ))}
         <button
           onClick={onSignOut}
-          className='rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100'
+          className='whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100'
         >
           Sign out
         </button>

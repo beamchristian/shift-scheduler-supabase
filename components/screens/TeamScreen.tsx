@@ -31,16 +31,23 @@ const buildEmployeeColumns = (
     cardSpan: 4,
   },
   {
-    key: "max_closes",
-    label: "Max closes / wk",
+    key: "min_days",
+    label: "Min days / wk",
     inputType: "number",
-    placeholder: "Default",
+    // Blank means 5 for full-timers and none for part-timers.
+    placeholder: "FT 5, PT none",
   },
   {
     key: "max_days",
     label: "Max days / wk",
     inputType: "number",
     placeholder: "No limit",
+  },
+  {
+    key: "max_closes",
+    label: "Max closes / wk",
+    inputType: "number",
+    placeholder: "Default",
   },
   {
     key: "payroll_type",
@@ -102,7 +109,9 @@ export function TeamScreen({
         Tag skills like subshop, service or production; a shift that requires a
         skill can only go to people tagged with it. To limit someone to certain
         shift types, enter names like Opener or Closer in that column. A blank
-        max closes uses the default from Settings, and 0 means they never close.
+        max closes uses the default from Settings, and 0 means they never close. A
+        blank min days means 5 for full-timers; set a lower number for anyone who
+        asked for fewer days.
         Payroll
         sets how someone's hours count: Hourly counts the hours they're scheduled,
         Salaried always counts their weekly salaried hours, and Billed elsewhere

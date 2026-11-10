@@ -5,6 +5,7 @@ import {
   closingTimesByDay,
   isClosingTime,
   limitFor,
+  minDaysFor,
   shiftKindFinder,
 } from "../../../lib/rules";
 import { dateOfDay, shortDateLabel } from "../../../lib/weeks";
@@ -22,7 +23,8 @@ import { cardClass } from "../../../lib/ui/styles";
 import { payrollNote } from "../../../lib/payroll";
 import { Callout } from "../../ui/Callout";
 
-// The generated schedule: a grid of people by day on computers, and a card for each day on phones.
+// The generated schedule: a grid of people by day on wide screens, and a card for each day on phones and
+// tablets. The grid's columns have fixed widths, so all six days always fit without scrolling sideways.
 export function ScheduleGrid({
   data,
   weekStart,
@@ -82,8 +84,16 @@ export function ScheduleGrid({
       )}
 
       {/* Computers: one row per person, one column per day. */}
-      <div className={`${cardClass} hidden overflow-x-auto md:block`}>
-        <table className='min-w-full text-sm'>
+      <div className={`${cardClass} hidden overflow-x-auto lg:block`}>
+        <table className='w-full table-fixed text-sm'>
+          {/* The name and hours columns get set widths; the six days share the rest equally. */}
+          <colgroup>
+            <col className='w-36' />
+            {WORK_DAYS.map((dayNumber) => (
+              <col key={dayNumber} />
+            ))}
+            <col className='w-28' />
+          </colgroup>
           <thead className='bg-slate-50'>
             <tr>
               <th className='px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500'>
@@ -95,7 +105,7 @@ export function ScheduleGrid({
                   className='px-2 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500'
                 >
                   {DAY_SHORT_LABELS[dayNumber]}
-                  <span className='ml-1 font-medium normal-case tracking-normal text-slate-400'>
+                  <span className='block font-medium normal-case tracking-normal text-slate-400'>
                     {shortDateLabel(dateOfDay(weekStart, dayNumber))}
                   </span>
                   {!isLocked && (
@@ -127,10 +137,13 @@ export function ScheduleGrid({
               const isOffTarget =
                 hours < employee.min_hours || hours > employee.max_hours;
               const closingCount = countClosingShifts(employee.id);
+              // Days worked against the person's minimum (5 for full-timers unless set lower), trainees included.
+              const daysWorked = new Set(employeeShifts.map((shift) => shift.day)).size;
+              const minimumDays = minDaysFor(employee);
               return (
                 <tr key={employee.id} className='align-top'>
-                  <td className='whitespace-nowrap px-3 py-2.5'>
-                    <div className='font-medium text-slate-900'>
+                  <td className='px-3 py-2.5'>
+                    <div className='truncate font-medium text-slate-900' title={employee.name}>
                       {employee.name}
                     </div>
                     <div className='text-xs text-slate-500'>
@@ -141,7 +154,7 @@ export function ScheduleGrid({
                     </div>
                   </td>
                   {WORK_DAYS.map((dayNumber) => (
-                    <td key={dayNumber} className='px-2 py-2.5'>
+                    <td key={dayNumber} className='px-1.5 py-2.5'>
                       <div className='space-y-1'>
                         {employeeShifts
                           .filter((shift) => shift.day === dayNumber)
@@ -152,10 +165,11 @@ export function ScheduleGrid({
                               onClick={() => onEditShift(shift)}
                               disabled={isLocked}
                               title={isLocked ? "Published. Unpublish the week to change shifts." : "Click to change this shift"}
-                              className={`block whitespace-nowrap rounded-md px-2 py-1 text-left text-xs ring-1 ring-inset ${isLocked ? "cursor-default" : "hover:brightness-95"} ${shiftChipClasses(shiftKindOf(shift))}`}
+                              className={`block w-full rounded-md px-2 py-1 text-left text-xs ring-1 ring-inset ${isLocked ? "cursor-default" : "hover:brightness-95"} ${shiftChipClasses(shiftKindOf(shift))}`}
                             >
-                              <div className='font-semibold'>{shift.name}</div>
-                              <div>
+                              {/* Long names such as "Subshop Close (training)" wrap instead of widening the day. */}
+                              <div className='break-words font-semibold leading-tight'>{shift.name}</div>
+                              <div className='whitespace-nowrap'>
                                 {formatTime12(shift.start, true)}–
                                 {formatTime12(shift.end, true)}
                               </div>
@@ -165,12 +179,17 @@ export function ScheduleGrid({
                     </td>
                   ))}
                   <td
-                    className={`whitespace-nowrap px-3 py-2.5 text-right tabular-nums ${isOffTarget ? "font-semibold text-amber-600" : "text-slate-700"}`}
+                    className={`px-3 py-2.5 text-right tabular-nums ${isOffTarget ? "font-semibold text-amber-600" : "text-slate-700"}`}
                   >
                     {roundTo2(hours)}
                     <div className='text-xs font-normal text-slate-400'>
                       {employee.min_hours}–{employee.max_hours}
                     </div>
+                    {daysWorked < minimumDays && (
+                      <div className='text-xs font-semibold text-amber-600'>
+                        {daysWorked} of {minimumDays} days
+                      </div>
+                    )}
                     {payrollNote(employee) && (
                       <div className='text-xs font-normal text-indigo-600'>
                         {payrollNote(employee)}
@@ -195,8 +214,8 @@ export function ScheduleGrid({
         </table>
       </div>
 
-      {/* Phones: one card per day, listing who works each shift. */}
-      <div className='space-y-3 md:hidden'>
+      {/* Phones and tablets: one card per day, listing who works each shift. */}
+      <div className='space-y-3 lg:hidden'>
         {days.map((dayRow) => {
           const dayShifts = data.schedule
             .filter((shift) => shift.day === dayRow.day)

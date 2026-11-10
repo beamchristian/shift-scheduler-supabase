@@ -203,6 +203,24 @@ export function maxDaysFor(employee: Pick<Employee, "max_days">): number {
   return Math.max(0, Number(ownLimit));
 }
 
+// The days a full-timer should work each week when their own minimum is blank.
+export const DEFAULT_FULL_TIME_MIN_DAYS = 5;
+
+// The fewest days a person should work in a week. Their own number when it is set; otherwise 5 for
+// full-timers and 0 for part-timers. Never more than their max days. A full-timer who asked for fewer
+// days gets a lower number on the Team screen. Returns the number of days.
+export function minDaysFor(employee: Pick<Employee, "min_days" | "max_days" | "type">): number {
+  const ownMinimum = employee.min_days;
+  const hasOwnMinimum =
+    ownMinimum != null && String(ownMinimum).trim() !== "" && Number.isFinite(Number(ownMinimum));
+  const minimum = hasOwnMinimum
+    ? Math.max(0, Number(ownMinimum))
+    : employee.type === "FT"
+      ? DEFAULT_FULL_TIME_MIN_DAYS
+      : 0;
+  return Math.min(minimum, maxDaysFor(employee));
+}
+
 // True when a shift needs a skill that the person is not tagged with.
 export function lacksSkill(
   employee: Employee,

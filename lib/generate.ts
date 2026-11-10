@@ -11,6 +11,7 @@ import {
   isClosingTime,
   limitFor,
   maxDaysFor,
+  minDaysFor,
   norm,
 } from "./rules";
 import { explainUnfilledShift } from "./unfilledReason";
@@ -250,6 +251,8 @@ async function plan(
         let score =
           Math.max(0, employee.min_hours - employee.hoursThisWeek) * 2 -
           employee.hoursThisWeek;
+        // People still short of their minimum days come first, so full-timers reach five days.
+        score += Math.max(0, minDaysFor(employee) - employee.daysWorked.size) * 30;
         if (requiredSkill && employee.skillTags.includes(requiredSkill))
           score += 100;
         // Part-timers are favored for shorter shifts, full-timers for longer ones.
@@ -387,13 +390,18 @@ async function plan(
     Number(employee.min_hours),
   );
   const closingLimits = employees.map(closingLimitOf);
+  const minDaysByEmployee = employees.map(minDaysFor);
   // Total penalty for the current assignment. Lower is better.
+  // Each close over a limit costs 1000, each day under someone's minimum days 40, and each hour under
+  // their minimum hours 1, so the fixes come in that order.
   const totalPenalty = (): number => {
     const hoursByPerson = employees.map(() => 0);
     const closesByPerson = employees.map(() => 0);
+    const daysByPerson = employees.map(() => new Set<number>());
     assignedEmployeeBySlot.forEach((holderIndex, slotIndex) => {
       if (holderIndex >= 0) {
         hoursByPerson[holderIndex] += slotHours[slotIndex];
+        daysByPerson[holderIndex].add(slots[slotIndex].day);
         if (isClosingSlotFlags[slotIndex]) closesByPerson[holderIndex]++;
       }
     });
@@ -408,7 +416,8 @@ async function plan(
         Math.max(
           0,
           minHoursByEmployee[personIndex] - hoursByPerson[personIndex],
-        ),
+        ) +
+        40 * Math.max(0, minDaysByEmployee[personIndex] - daysByPerson[personIndex].size),
       0,
     );
   };
@@ -594,8 +603,8 @@ async function plan(
   // Gives each person in training extra shifts on top of the schedule. They only shadow shifts someone
   // else is already working that day, so there is always someone to learn from, and they never fill a gap.
   // Busiest days come first, and the longest shift they may work that day is picked so they see a full shift.
-  // Each trainee stops at their minimum hours (or their maximum when no minimum is set), and never goes past
-  // their maximum hours, maximum days or availability. Their shifts are saved with "(training)" on the name.
+  // Each trainee keeps going until they reach both their minimum hours (or their maximum when no minimum is
+  // set) and their minimum days, and never goes past their maximum hours, maximum days or availability. Their shifts are saved with "(training)" on the name.
   // Returns nothing; the shifts are added to placedAssignments.
   const placeTrainingShifts = () => {
     const daysBusiestFirst = Object.keys(dailySalesByDay)
@@ -608,7 +617,9 @@ async function plan(
       const targetHours =
         Number(trainee.min_hours) > 0 ? Number(trainee.min_hours) : Number(trainee.max_hours);
       for (const day of daysBusiestFirst) {
-        if (trainee.hoursThisWeek >= targetHours) break;
+        const hasEnoughHours = trainee.hoursThisWeek >= targetHours;
+        const hasEnoughDays = trainee.daysWorked.size >= minDaysFor(trainee);
+        if (hasEnoughHours && hasEnoughDays) break;
         if (trainee.daysWorked.size >= maxDaysFor(trainee)) break;
         const shadowableShifts = shiftTemplates
           .filter(
@@ -733,6 +744,19 @@ async function plan(
     for (const underMinimumText of underMinimumHours)
       warnings.push(
         `${underMinimumText.replace(" (", " is under their minimum hours (")}.`,
+      );
+
+  // People who work fewer days than their minimum (5 for full-timers unless set lower on the Team screen).
+  // Trainees count too: they should get their days, even though they are extras. The staffing check
+  // (a dry run) never places training shifts, so trainees are only checked when a schedule is built.
+  const underMinimumDays = everyone
+    .filter((employee) => shouldSave || !isInTraining(employee))
+    .filter((employee) => employee.daysWorked.size < minDaysFor(employee))
+    .map((employee) => `${employee.name} (${employee.daysWorked.size}/${minDaysFor(employee)} days)`);
+  if (shouldSave)
+    for (const underMinimumText of underMinimumDays)
+      warnings.push(
+        `${underMinimumText.replace(" (", " works fewer days than their minimum (")}. Add a shift they can work, or lower their min days on the Team screen.`,
       );
 
   // Dry run only: suggestions for fixing what could not be covered.
@@ -959,7 +983,7 @@ async function plan(
     warnings,
     unfilled: unfilledDescriptions,
     unfilledReasons: [...unfilledReasons],
-    underMin: underMinimumHours,
+    underMin: [...underMinimumHours, ...underMinimumDays],
     capacity,
     needed: slots.length,
     suggestions,

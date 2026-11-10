@@ -58,6 +58,9 @@ export interface Employee {
   max_closes: number | string | null;
   // The most days this person may work in a week. Blank means no limit.
   max_days?: number | string | null;
+  // The fewest days this person should work in a week. Blank means 5 for full-timers and none for
+  // part-timers (see minDaysFor in lib/rules.ts).
+  min_days?: number | string | null;
   // How their hours count toward payroll: "hourly" (blank), "salaried" or "elsewhere". See lib/payroll.ts.
   payroll_type?: string | null;
   // Weekly hours a salaried person counts for. Blank means 40.

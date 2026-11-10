@@ -100,6 +100,8 @@ create table if not exists employees (
   max_closes double precision,
   -- The most days the person may work in a week. Blank means no limit.
   max_days double precision,
+  -- The fewest days the person should work in a week. Blank means 5 for full-timers, none for part-timers.
+  min_days double precision,
   -- How their hours count toward payroll: 'hourly', 'salaried' (a fixed salaried_hours, blank = 40)
   -- or 'elsewhere' (paid by another department, counts 0 here).
   payroll_type text default 'hourly',

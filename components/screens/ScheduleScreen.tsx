@@ -290,7 +290,7 @@ export function ScheduleScreen({
             ))}
           {staffingCheck && staffingCheck.underMin.length > 0 && (
             <Callout tone='warn'>
-              Likely under minimum hours: {staffingCheck.underMin.join(", ")}.
+              Likely under their minimum hours or days: {staffingCheck.underMin.join(", ")}.
             </Callout>
           )}
         </div>
