@@ -58,6 +58,12 @@ export interface Employee {
   max_closes: number | string | null;
   // The most days this person may work in a week. Blank means no limit.
   max_days?: number | string | null;
+  // How their hours count toward payroll: "hourly" (blank), "salaried" or "elsewhere". See lib/payroll.ts.
+  payroll_type?: string | null;
+  // Weekly hours a salaried person counts for. Blank means 40.
+  salaried_hours?: number | string | null;
+  // 1 when the person is in training: scheduled as an extra, never relied on to cover a shift.
+  in_training?: number | string | null;
   // Availability for Monday (1) through Saturday (6). Blank means any time, "off" means unavailable, or a window such as "6am-2pm".
   avail_1: string | null;
   avail_2: string | null;

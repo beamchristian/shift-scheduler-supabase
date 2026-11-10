@@ -14,6 +14,7 @@ import {
   norm,
 } from "./rules";
 import { explainUnfilledShift } from "./unfilledReason";
+import { fixedWeeklyHours, isInTraining, shiftsAddToPayroll } from "./payroll";
 import type { Employee, Settings, ShiftTemplate } from "./types";
 
 // Short day names for messages. Index 1 is Monday.
@@ -82,7 +83,7 @@ async function plan(
   );
   const storeHourList = Object.values(storeHourByDay);
 
-  const employees: EmployeeWorkingState[] = departmentSnapshot.employees.map(
+  const everyone: EmployeeWorkingState[] = departmentSnapshot.employees.map(
     (employee) => ({
       ...employee,
       hoursThisWeek: 0,
@@ -95,6 +96,9 @@ async function plan(
         .filter(Boolean),
     }),
   );
+  // People in training are never counted on to cover a shift. They get extra shifts on top at the end.
+  const employees = everyone.filter((employee) => !isInTraining(employee));
+  const trainees = everyone.filter(isInTraining);
   // Shift templates in the order they were created.
   const shiftTemplates: ShiftTemplate[] = [
     ...departmentSnapshot.shift_templates,
@@ -126,7 +130,22 @@ async function plan(
     (runningTotal, dayHours) => runningTotal + dayHours,
     0,
   );
-  let weekHours = 0;
+  // Salaried people count their fixed hours whether or not they are scheduled, so those come off the budget first.
+  const fixedSalariedHours = everyone.reduce(
+    (runningTotal, employee) => runningTotal + fixedWeeklyHours(employee),
+    0,
+  );
+  // Payroll hours used so far. Only hourly people's shifts add to it (see lib/payroll.ts).
+  let weekHours = fixedSalariedHours;
+  // The payroll hours one shift adds for one person: its length for hourly people, nothing for anyone else.
+  const payrollCost = (employee: Employee, shiftTemplate: ShiftTemplate) =>
+    shiftsAddToPayroll(employee) ? shiftLength(shiftTemplate) : 0;
+  // The searches below count every shift's length against one budget. Salaried people and people billed
+  // elsewhere cost nothing per shift, so their max hours are added to the budget the searches see. That lets
+  // them be scheduled freely, at the cost of the searches not telling the two kinds of hours apart.
+  const nonHourlyMaxHours = employees
+    .filter((employee) => !shiftsAddToPayroll(employee))
+    .reduce((runningTotal, employee) => runningTotal + Number(employee.max_hours || 0), 0);
   // Average shift length, used to favor part-timers on shorter shifts. Set once the slots are known.
   let averageShiftLength = 10;
 
@@ -139,22 +158,26 @@ async function plan(
     limitFor(employee, settings.max_closes);
 
   // Assignments are collected in memory and saved at the end, so the repair pass can still move them around.
+  // shiftName replaces the template's name on the saved shift (used to mark training shifts).
   const placedAssignments: {
     template: ShiftTemplate;
     employee: EmployeeWorkingState;
+    shiftName?: string;
   }[] = [];
   // Records one shift on a person: their hours, day, closes, and the assignment list.
+  // The day's and week's payroll hours only grow by what the shift costs this department.
   const applyAssignment = (
     employee: EmployeeWorkingState,
     shiftTemplate: ShiftTemplate,
+    shiftName?: string,
   ) => {
     const lengthOfShift = shiftLength(shiftTemplate);
     employee.hoursThisWeek += lengthOfShift;
     employee.daysWorked.add(shiftTemplate.day);
-    scheduledHoursByDay[shiftTemplate.day] += lengthOfShift;
-    weekHours += lengthOfShift;
+    scheduledHoursByDay[shiftTemplate.day] += payrollCost(employee, shiftTemplate);
+    weekHours += payrollCost(employee, shiftTemplate);
     if (isClosingShift(shiftTemplate)) employee.closesThisWeek++;
-    placedAssignments.push({ template: shiftTemplate, employee });
+    placedAssignments.push({ template: shiftTemplate, employee, shiftName });
   };
 
   // Whether a person is available for a shift. Warns once about availability text that cannot be read.
@@ -209,17 +232,20 @@ async function plan(
   ): EmployeeWorkingState | null => {
     const lengthOfShift = shiftLength(shiftTemplate);
     const requiredSkill = (shiftTemplate.skill || "").toLowerCase().trim();
-    if (shouldSave) {
-      if (weekHours + lengthOfShift > weeklyHourBudget + 1e-9) return null;
-      if (
-        !isRequired &&
-        scheduledHoursByDay[shiftTemplate.day] + lengthOfShift >
+    // True when giving this person the shift keeps payroll inside the week's budget, and the day's for extra shifts.
+    const fitsBudget = (employee: EmployeeWorkingState) => {
+      if (!shouldSave) return true;
+      const addedHours = payrollCost(employee, shiftTemplate);
+      if (weekHours + addedHours > weeklyHourBudget + 1e-9) return false;
+      return (
+        isRequired ||
+        scheduledHoursByDay[shiftTemplate.day] + addedHours <=
           dailyHourBudget[shiftTemplate.day]
-      )
-        return null;
-    }
+      );
+    };
     // Score each candidate. The highest score is picked.
     const bestCandidate = candidatePeople(shiftTemplate)
+      .filter(fitsBudget)
       .map((employee) => {
         let score =
           Math.max(0, employee.min_hours - employee.hoursThisWeek) * 2 -
@@ -329,7 +355,7 @@ async function plan(
       allowedMatrix,
       assignedEmployeeBySlot,
       openSlotIndexes,
-      shouldSave ? weeklyHourBudget - weekHours : Infinity,
+      shouldSave ? weeklyHourBudget - weekHours + nonHourlyMaxHours : Infinity,
     );
 
   // Last resort for coverage: if shifts are still open, search every combination for a schedule that covers more.
@@ -341,7 +367,7 @@ async function plan(
       maxDaysByEmployee,
       allowedMatrix,
       assignedEmployeeBySlot,
-      shouldSave ? weeklyHourBudget : Infinity,
+      shouldSave ? weeklyHourBudget - fixedSalariedHours + nonHourlyMaxHours : Infinity,
       {
         minHours: employees.map((employee) => Number(employee.min_hours)),
         closingLimits: employees.map(closingLimitOf),
@@ -494,7 +520,7 @@ async function plan(
       maxDaysByEmployee,
       allowedMatrix,
       assignedEmployeeBySlot,
-      shouldSave ? weeklyHourBudget : Infinity,
+      shouldSave ? weeklyHourBudget - fixedSalariedHours + nonHourlyMaxHours : Infinity,
       {
         minHours: minHoursByEmployee,
         closingLimits,
@@ -512,7 +538,7 @@ async function plan(
   }
   for (const dayKey of Object.keys(scheduledHoursByDay))
     scheduledHoursByDay[+dayKey] = 0;
-  weekHours = 0;
+  weekHours = fixedSalariedHours;
   placedAssignments.length = 0;
   slots.forEach((slot, slotIndex) => {
     if (assignedEmployeeBySlot[slotIndex] >= 0)
@@ -565,6 +591,44 @@ async function plan(
     }
   });
 
+  // Gives each person in training extra shifts on top of the schedule. They only shadow shifts someone
+  // else is already working that day, so there is always someone to learn from, and they never fill a gap.
+  // Busiest days come first, and the longest shift they may work that day is picked so they see a full shift.
+  // Each trainee stops at their minimum hours (or their maximum when no minimum is set), and never goes past
+  // their maximum hours, maximum days or availability. Their shifts are saved with "(training)" on the name.
+  // Returns nothing; the shifts are added to placedAssignments.
+  const placeTrainingShifts = () => {
+    const daysBusiestFirst = Object.keys(dailySalesByDay)
+      .map(Number)
+      .sort((first, second) => dailySalesByDay[second] - dailySalesByDay[first]);
+    const staffedTemplateIds = new Set(
+      placedAssignments.map((assignment) => assignment.template.id),
+    );
+    for (const trainee of trainees) {
+      const targetHours =
+        Number(trainee.min_hours) > 0 ? Number(trainee.min_hours) : Number(trainee.max_hours);
+      for (const day of daysBusiestFirst) {
+        if (trainee.hoursThisWeek >= targetHours) break;
+        if (trainee.daysWorked.size >= maxDaysFor(trainee)) break;
+        const shadowableShifts = shiftTemplates
+          .filter(
+            (shiftTemplate) =>
+              shiftTemplate.day === day &&
+              staffedTemplateIds.has(shiftTemplate.id) &&
+              trainee.hoursThisWeek + shiftLength(shiftTemplate) <= Number(trainee.max_hours) &&
+              canWorkShift(trainee, shiftTemplate),
+          )
+          .sort(
+            (first, second) =>
+              shiftLength(second) - shiftLength(first) ||
+              minutesOfDay(first.start) - minutesOfDay(second.start),
+          );
+        if (shadowableShifts.length)
+          applyAssignment(trainee, shadowableShifts[0], `${shadowableShifts[0].name} (training)`);
+      }
+    }
+  };
+
   // Phase 2: extra shifts up to each day's budget. The next one goes to the day with the most unused budget.
   if (
     shouldSave &&
@@ -605,6 +669,9 @@ async function plan(
     }
   }
 
+  // Phase 3: training shifts. Each trainee shadows shifts someone is already working, on top of them.
+  if (shouldSave) placeTrainingShifts();
+
   // Warn about anyone who closes more nights than their limit.
   if (shouldSave)
     for (const employee of employees)
@@ -625,14 +692,17 @@ async function plan(
       if (placedAssignments.length) {
         // Each new schedule row also records its department and week.
         const columnsPerRow = 8;
+        // The saved name: the template's, or "(training)" added for a trainee's shift.
+        const savedNameOf = (assignment: (typeof placedAssignments)[number]) =>
+          assignment.shiftName ?? assignment.template.name;
         const parameterValues = placedAssignments.flatMap(
-          ({ template, employee }) => [
-            template.day,
-            template.id,
-            employee.id,
-            template.name,
-            template.start,
-            template.end,
+          (assignment) => [
+            assignment.template.day,
+            assignment.template.id,
+            assignment.employee.id,
+            savedNameOf(assignment),
+            assignment.template.start,
+            assignment.template.end,
             departmentId,
             week.id,
           ],
@@ -851,7 +921,7 @@ async function plan(
 
   // Setup problems that do not depend on the schedule itself: names that match nobody, and skills nobody has.
   const configProblems: string[] = [];
-  const employeeNamesLower = employees.map((employee) =>
+  const employeeNamesLower = everyone.map((employee) =>
     employee.name.toLowerCase().trim(),
   );
   for (const shiftTemplate of shiftTemplates)

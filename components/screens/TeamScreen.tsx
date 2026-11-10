@@ -1,3 +1,4 @@
+import { PAYROLL_TYPE_LABELS, type PayrollType } from "../../lib/payroll";
 import type { Snapshot } from "../../lib/types";
 import { asTableRows, splitCommaList } from "../../lib/ui/format";
 import { EditableTable } from "../EditableTable/EditableTable";
@@ -9,8 +10,8 @@ import { Heading } from "../ui/Heading";
 const buildEmployeeColumns = (
   suggestedSkills: string[],
 ): ColumnDefinition[] => [
-  { key: "name", label: "Name" },
-  { key: "position", label: "Position" },
+  { key: "name", label: "Name", cardSpan: 3 },
+  { key: "position", label: "Position", cardSpan: 3 },
   { key: "type", label: "Type", options: ["FT", "PT"] },
   { key: "min_hours", label: "Min hrs", inputType: "number" },
   { key: "max_hours", label: "Max hrs", inputType: "number" },
@@ -20,17 +21,51 @@ const buildEmployeeColumns = (
     inputType: "tags",
     placeholder: "Add a skill",
     suggestions: suggestedSkills,
+    wide: true,
+    cardSpan: 4,
   },
-  { key: "shifts", label: "Only these shift types (blank = all)" },
+  {
+    key: "shifts",
+    label: "Only these shift types",
+    placeholder: "All shift types",
+    cardSpan: 4,
+  },
   {
     key: "max_closes",
-    label: "Max closes / wk (blank = default, 0 = never)",
+    label: "Max closes / wk",
     inputType: "number",
+    placeholder: "Default",
   },
   {
     key: "max_days",
-    label: "Max days / wk (blank = no limit)",
+    label: "Max days / wk",
     inputType: "number",
+    placeholder: "No limit",
+  },
+  {
+    key: "payroll_type",
+    label: "Payroll",
+    options: Object.keys(PAYROLL_TYPE_LABELS),
+    cellClassName: "min-w-[10rem]",
+    cardSpan: 3,
+    // Blank (older rows) counts as hourly.
+    formatOption: (payrollValue) =>
+      PAYROLL_TYPE_LABELS[(String(payrollValue) || "hourly") as PayrollType] ?? String(payrollValue),
+  },
+  {
+    key: "salaried_hours",
+    label: "Salaried hrs / wk",
+    inputType: "number",
+    placeholder: "40",
+    // Only matters for salaried people, so it is shown only for them.
+    showWhen: (employeeRow) => employeeRow.payroll_type === "salaried",
+  },
+  {
+    key: "in_training",
+    label: "In training",
+    options: [0, 1],
+    // Blank (older rows) means not in training.
+    formatOption: (trainingValue) => (Number(trainingValue) === 1 ? "Yes" : "No"),
   },
 ];
 
@@ -66,7 +101,14 @@ export function TeamScreen({
       <Heading title='Team'>
         Tag skills like subshop, service or production; a shift that requires a
         skill can only go to people tagged with it. To limit someone to certain
-        shift types, enter names like Opener or Closer in the last column.
+        shift types, enter names like Opener or Closer in that column. A blank
+        max closes uses the default from Settings, and 0 means they never close.
+        Payroll
+        sets how someone's hours count: Hourly counts the hours they're scheduled,
+        Salaried always counts their weekly salaried hours, and Billed elsewhere
+        schedules them here without counting any hours (for example a store
+        manager). People in training are added on top of the schedule as extra
+        hands and are never counted on to cover a shift.
       </Heading>
       <EditableTable
         weekStart={weekStart}
@@ -75,6 +117,8 @@ export function TeamScreen({
         rows={asTableRows<TableRow>(employees)}
         onDataChange={onDataChange}
         addLabel='Add employee'
+        // Each person has many settings, so cards that wrap avoid scrolling sideways.
+        layout='cards'
         highlightedId={highlightedId}
         onRowAdded={onRowAdded}
         defaultRow={{
@@ -86,6 +130,8 @@ export function TeamScreen({
           skills: "",
           shifts: "",
           max_closes: "",
+          payroll_type: "hourly",
+          in_training: 0,
         }}
       />
     </>

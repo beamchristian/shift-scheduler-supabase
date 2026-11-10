@@ -100,6 +100,12 @@ create table if not exists employees (
   max_closes double precision,
   -- The most days the person may work in a week. Blank means no limit.
   max_days double precision,
+  -- How their hours count toward payroll: 'hourly', 'salaried' (a fixed salaried_hours, blank = 40)
+  -- or 'elsewhere' (paid by another department, counts 0 here).
+  payroll_type text default 'hourly',
+  salaried_hours double precision,
+  -- 1 means in training: scheduled as an extra, never relied on to cover a shift.
+  in_training double precision default 0,
   avail_1 text default '',
   avail_2 text default '',
   avail_3 text default '',

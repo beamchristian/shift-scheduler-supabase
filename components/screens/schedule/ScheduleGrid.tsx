@@ -19,6 +19,7 @@ import {
   shiftChipClasses,
 } from "../../../lib/ui/format";
 import { cardClass } from "../../../lib/ui/styles";
+import { payrollNote } from "../../../lib/payroll";
 import { Callout } from "../../ui/Callout";
 
 // The generated schedule: a grid of people by day on computers, and a card for each day on phones.
@@ -170,6 +171,11 @@ export function ScheduleGrid({
                     <div className='text-xs font-normal text-slate-400'>
                       {employee.min_hours}–{employee.max_hours}
                     </div>
+                    {payrollNote(employee) && (
+                      <div className='text-xs font-normal text-indigo-600'>
+                        {payrollNote(employee)}
+                      </div>
+                    )}
                     {report.showAlt && (
                       <div className='text-xs font-normal text-slate-400'>
                         {roundTo2(altHours)} {altLabel}

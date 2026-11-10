@@ -8,6 +8,7 @@ import {
   roundTo2,
 } from "../../../lib/ui/format";
 import { cardClass } from "../../../lib/ui/styles";
+import { payrollTypeOf } from "../../../lib/payroll";
 
 // A small number box that lines up with the figures in the column below it.
 const DAY_WEIGHT_INPUT_CLASS =
@@ -190,6 +191,10 @@ export function LaborMatrix({
     },
   ];
   // The alternate rows are only shown when they differ from the main figures.
+  // True when someone is salaried or billed elsewhere, so the payroll rows need a short explanation.
+  const hasNonHourlyPeople = report.employees.some(
+    (employeeRow) => payrollTypeOf(employeeRow.emp) !== "hourly",
+  );
   const visibleRows = matrixRows.filter(
     (matrixRow) => !matrixRow.isAlternate || report.showAlt,
   );
@@ -202,6 +207,8 @@ export function LaborMatrix({
         sales, payroll target and allowed hours for that day update below.
         The weights are shared by every draft week; a published week keeps
         the weights it was published with.
+        {hasNonHourlyPeople &&
+          " Hours scheduled and payroll count salaried people at their set weekly hours and leave out people billed elsewhere, so they can differ from the hours on the schedule."}
       </p>
       <div className={`${cardClass} overflow-x-auto`}>
         <table className='min-w-full text-sm'>

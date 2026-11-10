@@ -1,5 +1,6 @@
 import { avgRate, dailySales, dayBudget, requiredHours } from "./matrix";
 import { breakRule, clockHours, paidHours, type BreakRule } from "./hours";
+import { payrollHoursByDay } from "./payroll";
 import { closingTimesByDay, isClosingTime } from "./rules";
 import type { Employee, ScheduleRow, Snapshot, StoreHour } from "./types";
 import { withWeekNumbers } from "./weeks";
@@ -7,6 +8,8 @@ import { withWeekNumbers } from "./weeks";
 // One row of the labor matrix, for one day.
 // "req" and "sched" are the hours the app's logic uses (scheduled shift hours by default).
 // "reqAlt" and "schedAlt" are the other figure, shown for reference (paid hours, with the unpaid lunch deducted).
+// "sched" counts payroll hours: salaried people count their fixed hours and people billed elsewhere count 0
+// (see lib/payroll.ts), so it can differ from the hours actually on the schedule.
 export interface DayRow {
   day: number;
   sales: number;
@@ -21,12 +24,33 @@ export interface DayRow {
 }
 
 // One person's line in the report: their shifts and hours.
+// hours and alt are the hours they are scheduled; payrollHours is what they count for in payroll.
 export interface EmpRow {
   emp: Employee;
   shifts: ScheduleRow[];
   hours: number;
   alt: number;
+  payrollHours: number;
   closes: number;
+}
+
+// Adds up each person's hours per day and turns them into payroll hours (see lib/payroll.ts).
+// hoursOfShift picks the figure to add up: shift hours or paid hours.
+// Returns the payroll hours for each day, keyed by day number, across the whole team.
+function payrollHoursPerDay(
+  snapshot: Snapshot,
+  hoursOfShift: (row: ScheduleRow) => number,
+): Record<number, number> {
+  const teamHoursByDay: Record<number, number> = {};
+  for (const employee of snapshot.employees) {
+    const workedHoursByDay: Record<number, number> = {};
+    for (const row of snapshot.schedule)
+      if (row.employee_id === employee.id)
+        workedHoursByDay[row.day] = (workedHoursByDay[row.day] || 0) + hoursOfShift(row);
+    for (const [day, hours] of Object.entries(payrollHoursByDay(employee, workedHoursByDay)))
+      teamHoursByDay[+day] = (teamHoursByDay[+day] || 0) + hours;
+  }
+  return teamHoursByDay;
 }
 
 // The full report used by the screen and the PDF.
@@ -80,6 +104,12 @@ export function buildReport(departmentSnapshot: Snapshot): Report {
       ? { main: paidFigure, alt: shiftFigure }
       : { main: shiftFigure, alt: paidFigure };
 
+  // Payroll hours per day, by shift hours and by paid hours.
+  const shiftPayrollByDay = payrollHoursPerDay(snapshot, (row) => clockHours(row.start, row.end));
+  const paidPayrollByDay = payrollHoursPerDay(snapshot, (row) =>
+    paidHours(row.start, row.end, breakSettings),
+  );
+
   // One row per day of the labor matrix.
   const days: DayRow[] = snapshot.store_hours.map((storeHour) => {
     const dayBudgetFigures = dayBudget(
@@ -87,23 +117,13 @@ export function buildReport(departmentSnapshot: Snapshot): Report {
       snapshot.settings,
       hourlyRate,
     );
-    const scheduledRowsForDay = snapshot.schedule.filter(
-      (scheduleRow) => scheduleRow.day === storeHour.day,
-    );
     const requiredFigures = pickMainAndReference(
       requiredHoursTotals.shift[storeHour.day] || 0,
       requiredHoursTotals.paid[storeHour.day] || 0,
     );
     const scheduledFigures = pickMainAndReference(
-      scheduledRowsForDay.reduce(
-        (runningTotal, row) => runningTotal + clockHours(row.start, row.end),
-        0,
-      ),
-      scheduledRowsForDay.reduce(
-        (runningTotal, row) =>
-          runningTotal + paidHours(row.start, row.end, breakSettings),
-        0,
-      ),
+      shiftPayrollByDay[storeHour.day] || 0,
+      paidPayrollByDay[storeHour.day] || 0,
     );
     return {
       day: storeHour.day,
@@ -135,11 +155,22 @@ export function buildReport(departmentSnapshot: Snapshot): Report {
         0,
       ),
     );
+    const workedHoursByDay: Record<number, number> = {};
+    for (const row of shiftsForEmployee)
+      workedHoursByDay[row.day] =
+        (workedHoursByDay[row.day] || 0) +
+        (breakSettings.countPaid
+          ? paidHours(row.start, row.end, breakSettings)
+          : clockHours(row.start, row.end));
     return {
       emp: employee,
       shifts: shiftsForEmployee,
       hours: personFigures.main,
       alt: personFigures.alt,
+      payrollHours: Object.values(payrollHoursByDay(employee, workedHoursByDay)).reduce(
+        (runningTotal, hours) => runningTotal + hours,
+        0,
+      ),
       closes: shiftsForEmployee.filter((row) =>
         isClosingTime(closingTimes, row.day, row.end),
       ).length,

@@ -7,6 +7,9 @@ import {
 } from "pdf-lib";
 import { t12 } from "./hours";
 import { buildReport } from "./report";
+
+// The ending the generator adds to a trainee's shift name (see placeTrainingShifts in lib/generate.ts).
+const TRAINING_SUFFIX = " (training)";
 import { shiftKindFinder } from "./rules";
 import { dateOfDay, shortDateLabel, weekLabel } from "./weeks";
 import type { Snapshot } from "./types";
@@ -613,8 +616,13 @@ export async function buildPdf(
           EMPLOYEE_ROW_HEIGHT - 4,
           SHIFT_FILLS[shiftKindOf(shiftForDay)],
         );
+        // A training shift is saved as "Subshop Open (training)". The station goes on the first line and
+        // "training" next to the time, so neither gets cut off in the narrow box.
+        const isTrainingShift = shiftForDay.name.endsWith(TRAINING_SUFFIX);
         drawText(
-          shiftForDay.name,
+          isTrainingShift
+            ? shiftForDay.name.slice(0, -TRAINING_SUFFIX.length)
+            : shiftForDay.name,
           boxLeft,
           SHIFT_COLUMN_WIDTH - 4,
           currentTop + 9.5 * rowScale,
@@ -624,7 +632,7 @@ export async function buildPdf(
           "center",
         );
         drawText(
-          `${t12(shiftForDay.start, true)} - ${t12(shiftForDay.end, true)}`,
+          `${t12(shiftForDay.start, true)} - ${t12(shiftForDay.end, true)}${isTrainingShift ? " training" : ""}`,
           boxLeft,
           SHIFT_COLUMN_WIDTH - 4,
           currentTop + 18.5 * rowScale,

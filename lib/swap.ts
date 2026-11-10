@@ -1,4 +1,5 @@
 import { snapshot, transaction } from "./db";
+import { isInTraining } from "./payroll";
 import { PUBLISHED_WEEK_MESSAGE } from "./scheduleWeeks";
 import { breakRule, logicHours } from "./hours";
 import {
@@ -89,7 +90,14 @@ export async function swapClosers(
   const rowsForDay = scheduleRows.filter(
     (scheduleRow) => scheduleRow.day === day,
   );
-  const closingRowsForDay = rowsForDay.filter(isClosingRow);
+  // People in training only shadow others, so their shifts are never swapped and they never become a closer.
+  const isTraineeId = (employeeId: number) => {
+    const person = employeeById.get(employeeId);
+    return !!person && isInTraining(person);
+  };
+  const closingRowsForDay = rowsForDay.filter(
+    (scheduleRow) => isClosingRow(scheduleRow) && !isTraineeId(scheduleRow.employee_id),
+  );
   if (!closingRowsForDay.length)
     return {
       ok: false,
@@ -142,6 +150,7 @@ export async function swapClosers(
       const otherPerson = employeeById.get(otherRow.employee_id);
       if (
         !otherPerson ||
+        isInTraining(otherPerson) ||
         isClosingRow(otherRow) ||
         otherPerson.id === currentCloser.id ||
         !canTakeShift(currentCloser, otherRow) ||
@@ -183,6 +192,7 @@ export async function swapClosers(
     for (const candidate of employees) {
       if (
         peopleWorkingDay.has(candidate.id) ||
+        isInTraining(candidate) ||
         !canTakeShift(candidate, closingRow) ||
         hoursOf(candidate) + shiftLength(closingRow) >
           candidate.max_hours + 1e-9

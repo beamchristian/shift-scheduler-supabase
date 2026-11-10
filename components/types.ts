@@ -53,6 +53,13 @@ export type ColumnDefinition = {
   formatOption?: (optionValue: string | number) => string;
   // Extra Tailwind classes for this column's cells on computers, such as a minimum width.
   cellClassName?: string;
+  // In the card layout, true makes the field twice as wide on tablets (for example a list of skill chips).
+  wide?: boolean;
+  // In the card layout on computers, how many of the card's 12 columns the field takes (2 when not set).
+  cardSpan?: 2 | 3 | 4 | 6;
+  // When set, the field only shows for rows where this returns true (for example salaried hours
+  // only for salaried people). Hidden fields keep their saved value.
+  showWhen?: (row: TableRow) => boolean;
 };
 
 // The result of generating a schedule: the new data, plus any warnings.

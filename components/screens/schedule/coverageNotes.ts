@@ -1,20 +1,23 @@
 import type { Report } from "../../../lib/report";
+import { isInTraining } from "../../../lib/payroll";
 import type { Snapshot } from "../../../lib/types";
 import { DAY_FULL_NAMES, WORK_DAYS, roundTo2 } from "../../../lib/ui/format";
 
 // Builds the warning sentences shown above the labor matrix:
 // team hours that don't add up, days whose required hours exceed their weight, and days with more
-// people needed than employees on the list.
+// people needed than employees on the list. People in training are left out, since they are never
+// counted on to cover a shift.
 export function buildCoverageNotes(data: Snapshot, report: Report): string[] {
+  const reliableEmployees = data.employees.filter((employee) => !isInTraining(employee));
   const requiredHoursByDay: Record<number, number> = Object.fromEntries(
     report.days.map((dayRow) => [dayRow.day, dayRow.req]),
   );
   const requiredHoursTotal = report.totals.req;
-  const minimumHoursTotal = data.employees.reduce(
+  const minimumHoursTotal = reliableEmployees.reduce(
     (runningTotal, employee) => runningTotal + Number(employee.min_hours),
     0,
   );
-  const maximumHoursTotal = data.employees.reduce(
+  const maximumHoursTotal = reliableEmployees.reduce(
     (runningTotal, employee) => runningTotal + Number(employee.max_hours),
     0,
   );
@@ -38,9 +41,9 @@ export function buildCoverageNotes(data: Snapshot, report: Report): string[] {
 
   // A day needs more people than the team has.
   for (const dayNumber of WORK_DAYS)
-    if ((report.heads[dayNumber] || 0) > data.employees.length)
+    if ((report.heads[dayNumber] || 0) > reliableEmployees.length)
       coverageNotes.push(
-        `${DAY_FULL_NAMES[dayNumber]} needs ${report.heads[dayNumber]} people but you only have ${data.employees.length} employees.`,
+        `${DAY_FULL_NAMES[dayNumber]} needs ${report.heads[dayNumber]} people but you only have ${reliableEmployees.length} employees who aren't in training.`,
       );
 
   return coverageNotes;
